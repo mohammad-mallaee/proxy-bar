@@ -73,6 +73,8 @@ final class AppStore {
     var report: RegionReport?
     /// Whether the menu shows the per-service details (collapsed by default).
     var regionExpanded = false
+    /// Measured height of the menu panel's content (used to shrink the panel).
+    var menuContentHeight: CGFloat = 0
 
     // UI state for the Settings window (kept here because @State isn't available without Xcode).
     var selectedAppID: UUID?

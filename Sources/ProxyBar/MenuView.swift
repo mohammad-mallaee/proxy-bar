@@ -62,11 +62,22 @@ struct MenuView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(width: 290)
+        .fixedSize(horizontal: false, vertical: true)
         // No keyboard focus ring: otherwise the first button in the panel
         // (e.g. a ▶ launch button) opens with a blue highlight around it.
         .focusEffectDisabled()
-        .animation(.easeInOut(duration: 0.15), value: store.regionExpanded)
-        .animation(.easeInOut(duration: 0.2), value: store.message)
+        // MenuBarExtra panels grow with their content but never shrink, so after
+        // collapsing the region details the old height stayed as empty space.
+        // Measure the real content height and resize the panel to match.
+        .background(
+            GeometryReader { geometry in
+                Color.clear.preference(key: ContentHeightKey.self, value: geometry.size.height)
+            }
+        )
+        .onPreferenceChange(ContentHeightKey.self) { height in
+            store.menuContentHeight = height
+        }
+        .background(PanelHeightFitter(height: store.menuContentHeight))
         .task { await store.refreshApps() }
     }
 }
@@ -408,5 +419,36 @@ private struct AppRow: View {
     private func leftoverHelp(_ s: AppStatus) -> String {
         guard !s.leftovers.isEmpty else { return "" }
         return s.leftovers.map { "\($0.name) (pid \($0.pid))" }.joined(separator: "\n")
+    }
+}
+
+// MARK: - Panel sizing
+
+private struct ContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// Resizes the hosting window to `height`, keeping its top edge in place
+/// (the panel hangs from the menu bar).
+struct PanelHeightFitter: NSViewRepresentable {
+    let height: CGFloat
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        let target = height.rounded(.up)
+        guard target > 0 else { return }
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            var frame = window.frame
+            let contentHeight = window.contentRect(forFrameRect: frame).height
+            let chrome = frame.height - contentHeight
+            let newHeight = target + chrome
+            guard abs(frame.height - newHeight) > 0.5 else { return }
+            frame.origin.y += frame.height - newHeight
+            frame.size.height = newHeight
+            window.setFrame(frame, display: true, animate: false)
+        }
     }
 }

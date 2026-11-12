@@ -81,4 +81,5 @@ Smaller follow-ups noticed while building v0.2:
 | 2026-11-12 | v0.1: harness for env reading, TCP probe, connection test, env merge on launch | ✅ |
 | 2026-11-12 | v0.2: region check from harness, proxy vs. direct, 9 services | ✅ all classified correctly (8 OK + Groq blocked via proxy; 9 blocked direct) |
 | 2026-11-12 | v0.2: terminal script with a `it's a test dir` path, run with a fake shell | ✅ right folder, variables exported, script deleted itself |
+| 2026-11-12 | Menu panel shrinks after collapsing the region details (hosted in an invisible panel, toggled 4×) | ✅ 164 → 383 → 164 pt, top edge fixed |
 | — | Notifications, onboarding and menu UI clicked through by hand | ⏳ needs a manual pass |
