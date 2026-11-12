@@ -11,13 +11,13 @@ struct MenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ProxyHeader(store: store)
-                .padding(.bottom, 8)
+                .padding(.bottom, 4)
 
             RegionSummary(store: store)
 
-            Divider().padding(.vertical, 8)
+            Divider().padding(.vertical, 6)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 if store.apps.isEmpty {
                     Text("No apps yet. Add some in Settings.")
                         .foregroundStyle(.secondary)
@@ -33,13 +33,13 @@ struct MenuView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 8)
+                    .padding(.top, 6)
                     .transition(.opacity)
             }
 
-            Divider().padding(.vertical, 8)
+            Divider().padding(.vertical, 6)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 TerminalMenu(store: store)
                 Spacer()
                 Button {
@@ -59,8 +59,12 @@ struct MenuView: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(width: 340)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(width: 290)
+        // No keyboard focus ring: otherwise the first button in the panel
+        // (e.g. a ▶ launch button) opens with a blue highlight around it.
+        .focusEffectDisabled()
         .animation(.easeInOut(duration: 0.15), value: store.regionExpanded)
         .animation(.easeInOut(duration: 0.2), value: store.message)
         .task { await store.refreshApps() }
@@ -313,10 +317,10 @@ private struct AppRow: View {
     var body: some View {
         let status = store.status(for: app)
         let blocked = store.blockedServices(for: app)
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(nsImage: store.icon(for: app))
                 .resizable()
-                .frame(width: 24, height: 24)
+                .frame(width: 22, height: 22)
             VStack(alignment: .leading, spacing: 1) {
                 Text(app.name)
                     .lineLimit(1)
@@ -346,12 +350,12 @@ private struct AppRow: View {
 
     @ViewBuilder
     private func buttons(_ status: AppStatus) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             if status.running {
                 iconButton("arrow.clockwise", help: "Quit and relaunch through the proxy") {
                     await store.relaunch(app)
                 }
-                iconButton("stop.fill", help: "Quit (right-click to force quit)") {
+                iconButton("stop.circle", help: "Quit (right-click to force quit)") {
                     await store.stop(app)
                 }
                 .contextMenu {
@@ -363,7 +367,7 @@ private struct AppRow: View {
                         await store.cleanup(app)
                     }
                 }
-                iconButton("play.fill", help: "Launch through the proxy") {
+                iconButton("play.circle", help: "Launch through the proxy") {
                     await store.launch(app)
                 }
             }
@@ -375,8 +379,13 @@ private struct AppRow: View {
         Button {
             Task { await action() }
         } label: {
-            Image(systemName: symbol).frame(width: 20, height: 20)
+            Image(systemName: symbol)
+                .font(.system(size: 14))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
+        .focusable(false)
+        .foregroundStyle(.secondary)
         .help(help)
     }
 
