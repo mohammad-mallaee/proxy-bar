@@ -83,6 +83,7 @@ private struct GeneralSettings: View {
                 if let error = store.loginError {
                     Text(error).font(.caption).foregroundStyle(.red)
                 }
+                Button("Run setup again…") { OnboardingController.shared.show(store: store) }
             }
         }
         .formStyle(.grouped)

@@ -9,6 +9,11 @@ cd "$(dirname "$0")"
 APP_NAME="ProxyBar"
 APP="build/$APP_NAME.app"
 
+if [[ ! -f Resources/AppIcon.icns ]]; then
+  swift scripts/make-icon.swift build/AppIcon.iconset
+  iconutil -c icns build/AppIcon.iconset -o Resources/AppIcon.icns
+fi
+
 swift build -c release
 BIN_DIR="$(swift build -c release --show-bin-path)"
 

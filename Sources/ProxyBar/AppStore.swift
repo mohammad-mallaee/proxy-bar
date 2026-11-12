@@ -102,6 +102,13 @@ final class AppStore {
 
     private func start() {
         Notifier.shared.setUp()
+        if !OnboardingController.isDone {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(600))
+                guard let self else { return }
+                OnboardingController.shared.show(store: self)
+            }
+        }
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
