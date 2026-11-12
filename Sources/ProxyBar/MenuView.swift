@@ -32,8 +32,7 @@ struct MenuView: View {
             Divider()
 
             HStack {
-                Button("Copy shell exports") { store.copyShellExports() }
-                    .help("Copy export commands so a terminal uses the same proxy")
+                TerminalMenu(store: store)
                 Spacer()
                 Button {
                     NSApp.activate(ignoringOtherApps: true)
@@ -54,6 +53,40 @@ struct MenuView: View {
         .padding(12)
         .frame(width: 380)
         .task { await store.refreshApps() }
+    }
+}
+
+// MARK: - Terminal menu
+
+private struct TerminalMenu: View {
+    @Bindable var store: AppStore
+
+    var body: some View {
+        Menu {
+            Button("New window in home folder") {
+                Task { await store.openTerminal(at: URL(fileURLWithPath: NSHomeDirectory())) }
+            }
+            Button("Choose folder…") {
+                Task { await store.chooseFolderForTerminal() }
+            }
+            let recents = store.recentTerminalFolders
+            if !recents.isEmpty {
+                Section("Recent") {
+                    ForEach(recents, id: \.self) { folder in
+                        Button(folder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")) {
+                            Task { await store.openTerminal(at: folder) }
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("Copy shell exports") { store.copyShellExports() }
+        } label: {
+            Label("Terminal with proxy", systemImage: "terminal")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Open \(store.settings.terminalApp.name) with the proxy variables set")
     }
 }
 

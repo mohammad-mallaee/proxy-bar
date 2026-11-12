@@ -46,6 +46,14 @@ private struct GeneralSettings: View {
                 }
             }
 
+            Section("Terminal") {
+                Picker("Terminal app", selection: $store.settings.terminalApp) {
+                    ForEach(TerminalApp.installed) { Text($0.name).tag($0) }
+                }
+                Text("Used by “Terminal with proxy” in the menu. The window's shell starts with the proxy variables set.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Notifications") {
                 Toggle("When the proxy stops answering", isOn: $store.settings.notifyProxyDown)
                 Toggle("Only while an app is running through it", isOn: $store.settings.notifyOnlyWhenAppsUseProxy)

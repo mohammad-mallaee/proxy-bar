@@ -41,6 +41,10 @@ struct ProxySettings: Codable, Equatable {
     var notifyOnlyWhenAppsUseProxy = false
     /// Notify when an automatic region check finds a service newly blocked through the proxy.
     var notifyServiceBlocked = true
+    /// Terminal used by "Open Terminal with proxy".
+    var terminalApp: TerminalApp = .terminal
+    /// Most recent folders opened in a proxied terminal (newest first).
+    var recentTerminalFolders: [String] = []
 
     init() {}
 
@@ -63,6 +67,8 @@ struct ProxySettings: Codable, Equatable {
         notifyProxyUp = try c.decodeIfPresent(Bool.self, forKey: .notifyProxyUp) ?? d.notifyProxyUp
         notifyOnlyWhenAppsUseProxy = try c.decodeIfPresent(Bool.self, forKey: .notifyOnlyWhenAppsUseProxy) ?? d.notifyOnlyWhenAppsUseProxy
         notifyServiceBlocked = try c.decodeIfPresent(Bool.self, forKey: .notifyServiceBlocked) ?? d.notifyServiceBlocked
+        terminalApp = try c.decodeIfPresent(TerminalApp.self, forKey: .terminalApp) ?? d.terminalApp
+        recentTerminalFolders = try c.decodeIfPresent([String].self, forKey: .recentTerminalFolders) ?? d.recentTerminalFolders
     }
 
     var url: String { "\(scheme.rawValue)://\(host):\(port)" }

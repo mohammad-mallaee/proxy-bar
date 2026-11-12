@@ -370,6 +370,41 @@ final class AppStore {
 
     // MARK: - Misc
 
+    // MARK: - Terminal
+
+    func openTerminal(at folder: URL) async {
+        var terminal = settings.terminalApp
+        if terminal.appURL == nil { terminal = .terminal }
+        do {
+            try await TerminalLauncher.open(folder: folder, settings: settings, terminal: terminal)
+            var recents = settings.recentTerminalFolders.filter { $0 != folder.path }
+            recents.insert(folder.path, at: 0)
+            settings.recentTerminalFolders = Array(recents.prefix(6))
+            message = "Opened \(terminal.name) in \(folder.lastPathComponent) with the proxy set"
+        } catch {
+            message = "Couldn't open \(terminal.name): \(error.localizedDescription)"
+        }
+    }
+
+    func chooseFolderForTerminal() async {
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open Terminal"
+        panel.directoryURL = URL(fileURLWithPath: settings.recentTerminalFolders.first ?? NSHomeDirectory())
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        await openTerminal(at: url)
+    }
+
+    /// Recent folders that still exist.
+    var recentTerminalFolders: [URL] {
+        settings.recentTerminalFolders
+            .filter { FileManager.default.fileExists(atPath: $0) }
+            .map { URL(fileURLWithPath: $0) }
+    }
+
     func copyShellExports() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(settings.shellExports, forType: .string)
