@@ -24,6 +24,8 @@ When you're happy with a round: `git checkout main && git merge feature/v0.2`.
 | Add notifications for proxy down/up and newly blocked services | Debounced proxy-down alert, "back" alert, newly-blocked-service alert |
 | Add "Terminal with proxy" | Terminal/iTerm in any folder with the proxy variables set; recent folders |
 | Add app icon and first-run setup | Generated icon; 4-step setup window |
+| Tidy the menu: collapsed region summary, one-line rows | Region check is one clickable summary line (collapsed by default); one-line proxy header; icon-only footer; self-clearing messages |
+| Ask which services the user uses in setup | New setup step; pre-ticked from the chosen apps; only ticked services are checked |
 
 ### v0.1.0: `main`
 

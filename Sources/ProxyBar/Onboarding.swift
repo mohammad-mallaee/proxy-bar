@@ -55,12 +55,21 @@ final class OnboardingModel {
         var selected: Bool
     }
 
-    static let stepCount = 4
+    static let stepCount = 5
+    static let servicesStep = 2
 
-    var step = 0
+    var step = 0 {
+        didSet { if step == Self.servicesStep { preselectServicesIfNeeded() } }
+    }
     var candidates: [Candidate]
+    /// IDs of the services the user says they use.
+    var selectedServices: Set<String> = []
+    /// Once the user edits the service list, stop re-deriving it from the chosen apps.
+    var servicesTouched = false
     var openAtLogin: Bool
     var notifications: Bool
+    private let isRerun: Bool
+    private let allServices: [ServiceCheck]
 
     init(store: AppStore) {
         var list = store.apps.map { Candidate(app: $0, selected: true) }
@@ -70,6 +79,30 @@ final class OnboardingModel {
         candidates = list
         openAtLogin = store.opensAtLogin
         notifications = store.settings.notifyProxyDown
+        isRerun = OnboardingController.isDone
+        allServices = store.services
+        if isRerun {
+            // Running setup again: start from what's enabled now.
+            selectedServices = Set(store.services.filter(\.enabled).map(\.id))
+            servicesTouched = true
+        }
+    }
+
+    /// First run: pre-tick the services the chosen apps depend on.
+    private func preselectServicesIfNeeded() {
+        guard !servicesTouched else { return }
+        let fromApps = Set(candidates.filter(\.selected).flatMap(\.app.serviceIDs))
+        selectedServices = fromApps.isEmpty ? Set(allServices.map(\.id)) : fromApps
+    }
+
+    func setService(_ id: String, selected: Bool) {
+        servicesTouched = true
+        if selected { selectedServices.insert(id) } else { selectedServices.remove(id) }
+    }
+
+    /// Names of the chosen apps that use a service.
+    func appsUsing(_ serviceID: String) -> [String] {
+        candidates.filter { $0.selected && $0.app.serviceIDs.contains(serviceID) }.map(\.app.name)
     }
 
     func addOtherApps() {
@@ -91,6 +124,10 @@ final class OnboardingModel {
     /// Applies the choices to the store.
     func apply(to store: AppStore) {
         store.apps = candidates.filter(\.selected).map(\.app)
+        for index in store.services.indices {
+            store.services[index].enabled = selectedServices.contains(store.services[index].id)
+        }
+        Task { await store.runRegionCheck() }
         if openAtLogin != store.opensAtLogin { store.setOpensAtLogin(openAtLogin) }
         store.settings.notifyProxyDown = notifications
         store.settings.notifyProxyUp = notifications
@@ -112,7 +149,8 @@ struct OnboardingView: View {
                 switch model.step {
                 case 0: ProxyStep(store: store)
                 case 1: AppsStep(model: model, store: store)
-                case 2: StartupStep(model: model, store: store)
+                case 2: ServicesStep(model: model, store: store)
+                case 3: StartupStep(model: model, store: store)
                 default: DoneStep(store: store)
                 }
             }
@@ -165,10 +203,11 @@ struct OnboardingView: View {
         .padding(16)
     }
 
-    private let titles = ["Welcome to ProxyBar", "Choose your apps", "Startup and alerts", "You're all set"]
+    private let titles = ["Welcome to ProxyBar", "Choose your apps", "Services you use", "Startup and alerts", "You're all set"]
     private let subtitles = [
         "Launch apps through your proxy and see which services work.",
         "These apps will be launched with the proxy set.",
+        "ProxyBar checks that these work through your proxy.",
         "Decide what happens at login and when the proxy drops.",
         "ProxyBar lives in your menu bar.",
     ]
@@ -268,6 +307,56 @@ private struct AppsStep: View {
     }
 }
 
+private struct ServicesStep: View {
+    @Bindable var model: OnboardingModel
+    @Bindable var store: AppStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            List {
+                ForEach(store.services) { service in
+                    HStack(spacing: 10) {
+                        Toggle("", isOn: Binding(
+                            get: { model.selectedServices.contains(service.id) },
+                            set: { model.setService(service.id, selected: $0) }
+                        ))
+                        .labelsHidden()
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(service.name)
+                            let users = model.appsUsing(service.id)
+                            if !users.isEmpty {
+                                Text("Used by " + users.joined(separator: ", "))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if let verdict = store.report?.result(for: service.id)?.viaProxy {
+                            Text(verdict.isAvailable ? "Works" : verdict.isBlocked ? "Blocked" : "No reply")
+                                .font(.caption)
+                                .foregroundStyle(verdict.isAvailable ? .green : verdict.isBlocked ? .red : .orange)
+                                .help(verdict.detail)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            HStack {
+                Button("Select all") {
+                    for service in store.services { model.setService(service.id, selected: true) }
+                }
+                Button("Select none") {
+                    for service in store.services { model.setService(service.id, selected: false) }
+                }
+                Spacer()
+                Text("Add your own in Settings → Region.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(12)
+        }
+    }
+}
+
 private struct StartupStep: View {
     @Bindable var model: OnboardingModel
     @Bindable var store: AppStore
@@ -303,7 +392,7 @@ private struct DoneStep: View {
         VStack(alignment: .leading, spacing: 14) {
             tip("network", "Click the globe in the menu bar to open ProxyBar.")
             tip("play.fill", "Launch apps with ▶. Running apps can be relaunched through the proxy with ↻.")
-            tip("checkmark.shield", "“Check” shows your exit country and which services work through the proxy.")
+            tip("globe", "The line under the proxy shows your exit country and which services work. Click it for details, ↻ to re-check.")
             tip("terminal", "“Terminal with proxy” opens a shell with the proxy variables already set.")
             tip("gearshape", "Settings has your proxy, apps, region checks and notifications.")
         }
