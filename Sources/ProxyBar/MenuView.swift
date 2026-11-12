@@ -3,7 +3,10 @@ import SwiftUI
 /// The panel that opens from the menu bar icon.
 ///
 /// Layout, top to bottom:
-///   proxy (one line) · region summary (one line, click to expand) · apps · footer icons
+///   proxy (one line) · region summary (one line) · apps · footer (icons + status message)
+///
+/// Every row has a fixed height, so the panel never changes size while open.
+/// (MenuBarExtra panels grow with their content but don't shrink back.)
 struct MenuView: View {
     @Bindable var store: AppStore
     @Environment(\.openSettings) private var openSettings
@@ -28,20 +31,17 @@ struct MenuView: View {
                 }
             }
 
-            if let message = store.message {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 6)
-                    .transition(.opacity)
-            }
-
             Divider().padding(.vertical, 6)
 
             HStack(spacing: 10) {
                 TerminalMenu(store: store)
-                Spacer()
+                // Status messages live here, on one line, so they don't change the panel's height.
+                Text(store.message ?? "")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(store.message ?? "")
                 Button {
                     NSApp.activate(ignoringOtherApps: true)
                     openSettings()
@@ -66,18 +66,6 @@ struct MenuView: View {
         // No keyboard focus ring: otherwise the first button in the panel
         // (e.g. a ▶ launch button) opens with a blue highlight around it.
         .focusEffectDisabled()
-        // MenuBarExtra panels grow with their content but never shrink, so after
-        // collapsing the region details the old height stayed as empty space.
-        // Measure the real content height and resize the panel to match.
-        .background(
-            GeometryReader { geometry in
-                Color.clear.preference(key: ContentHeightKey.self, value: geometry.size.height)
-            }
-        )
-        .onPreferenceChange(ContentHeightKey.self) { height in
-            store.menuContentHeight = height
-        }
-        .background(PanelHeightFitter(height: store.menuContentHeight))
         .task { await store.refreshApps() }
     }
 }
@@ -123,51 +111,33 @@ private struct ProxyHeader: View {
     }
 }
 
-// MARK: - Region summary (collapsed by default)
+// MARK: - Region summary
 
+/// One line: exit country · how many services work · what's blocked.
+/// Hover for per-service results; Settings → Region has the full table.
 private struct RegionSummary: View {
     @Bindable var store: AppStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+        HStack(spacing: 6) {
+            summary
+                .help(tooltip)
+            Spacer(minLength: 0)
+            if store.checking {
+                ProgressView().controlSize(.mini)
+            } else {
                 Button {
-                    store.regionExpanded.toggle()
+                    Task { await store.runRegionCheck() }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.semibold))
-                            .rotationEffect(.degrees(store.regionExpanded ? 90 : 0))
-                            .foregroundStyle(.secondary)
-                        summary
-                        Spacer(minLength: 0)
-                    }
-                    .contentShape(Rectangle())
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
                 }
-                .buttonStyle(.plain)
-                .disabled(store.report == nil)
-
-                if store.checking {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Button {
-                        Task { await store.runRegionCheck() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("Check your exit country and the services you use")
-                }
-            }
-
-            if store.regionExpanded, let report = store.report {
-                RegionDetails(store: store, report: report)
-                    .padding(.leading, 14)
-                    .transition(.opacity)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Check your exit country and the services you use")
             }
         }
+        .frame(height: 18)
     }
 
     @ViewBuilder
@@ -192,10 +162,10 @@ private struct RegionSummary: View {
                     Text("·").foregroundStyle(.tertiary)
                     Text(problemText(blocked: blocked, failed: failed))
                         .foregroundStyle(blocked.isEmpty ? .orange : .red)
-                        .lineLimit(1)
                 }
             }
             .font(.caption)
+            .lineLimit(1)
         } else {
             Text(store.checking ? "Checking services…" : "Services not checked yet")
                 .font(.caption)
@@ -211,76 +181,24 @@ private struct RegionSummary: View {
         if !failed.isEmpty { parts.append("\(failed.count) no reply") }
         return parts.joined(separator: ", ")
     }
-}
 
-private struct RegionDetails: View {
-    @Bindable var store: AppStore
-    let report: RegionReport
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
-                GridRow {
-                    Text("")
-                    Text("Proxy")
-                    if store.settings.checkDirectToo { Text("Direct") }
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-                ForEach(store.services.filter(\.enabled)) { service in
-                    let result = report.result(for: service.id)
-                    GridRow {
-                        Text(service.name).lineLimit(1)
-                        VerdictIcon(verdict: result?.viaProxy)
-                        if store.settings.checkDirectToo {
-                            VerdictIcon(verdict: result?.direct)
-                        }
-                    }
-                    .font(.caption)
-                }
-            }
-
-            Text(footerText)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-
-            ForEach(report.errors, id: \.self) { error in
-                Text(error)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-            }
+    /// Per-service results for the hover tooltip.
+    private var tooltip: String {
+        guard let report = store.report else { return "" }
+        var lines: [String] = []
+        if let exit = report.proxyExit {
+            lines.append("Exit \(exit.country ?? "?") · \(exit.ip ?? "?")")
         }
-    }
-
-    private var footerText: String {
-        var parts: [String] = []
-        if let ip = report.proxyExit?.ip { parts.append("Exit IP \(ip)") }
-        if let direct = report.directExit?.country { parts.append("direct \(RegionChecker.flag(for: direct)) \(direct)") }
-        if let ms = report.googleMs { parts.append("Google \(Int(ms)) ms") }
-        parts.append(report.date.formatted(.relative(presentation: .named)))
-        return parts.joined(separator: " · ")
-    }
-}
-
-private struct VerdictIcon: View {
-    let verdict: ServiceVerdict?
-
-    var body: some View {
-        Group {
-            switch verdict {
-            case .available?:
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-            case .blocked?:
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-            case .unreachable?:
-                Image(systemName: "questionmark.circle.fill").foregroundStyle(.orange)
-            case nil:
-                Text("–").foregroundStyle(.secondary)
-            }
+        if let direct = report.directExit?.country { lines.append("Direct \(direct)") }
+        lines.append("")
+        for service in store.services where service.enabled {
+            let verdict = report.result(for: service.id)?.viaProxy
+            let mark = verdict?.isAvailable == true ? "✓" : verdict?.isBlocked == true ? "✗" : "?"
+            lines.append("\(mark) \(service.name)")
         }
-        .help(verdict?.detail ?? "Not checked")
+        lines.append("")
+        lines.append("Checked " + report.date.formatted(.relative(presentation: .named)))
+        return lines.joined(separator: "\n")
     }
 }
 
@@ -419,36 +337,5 @@ private struct AppRow: View {
     private func leftoverHelp(_ s: AppStatus) -> String {
         guard !s.leftovers.isEmpty else { return "" }
         return s.leftovers.map { "\($0.name) (pid \($0.pid))" }.joined(separator: "\n")
-    }
-}
-
-// MARK: - Panel sizing
-
-private struct ContentHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-/// Resizes the hosting window to `height`, keeping its top edge in place
-/// (the panel hangs from the menu bar).
-struct PanelHeightFitter: NSViewRepresentable {
-    let height: CGFloat
-
-    func makeNSView(context: Context) -> NSView { NSView() }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        let target = height.rounded(.up)
-        guard target > 0 else { return }
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            var frame = window.frame
-            let contentHeight = window.contentRect(forFrameRect: frame).height
-            let chrome = frame.height - contentHeight
-            let newHeight = target + chrome
-            guard abs(frame.height - newHeight) > 0.5 else { return }
-            frame.origin.y += frame.height - newHeight
-            frame.size.height = newHeight
-            window.setFrame(frame, display: true, animate: false)
-        }
     }
 }
