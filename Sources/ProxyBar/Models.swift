@@ -33,6 +33,14 @@ struct ProxySettings: Codable, Equatable {
     var checkDirectToo = true
     /// Re-run the region check automatically every N minutes (0 = only at start and when the proxy reconnects).
     var regionCheckIntervalMinutes = 30
+    /// Notify when the proxy stops answering (after two failed checks in a row).
+    var notifyProxyDown = true
+    /// Notify when it answers again.
+    var notifyProxyUp = true
+    /// Only notify about the proxy going down while an app is running through it.
+    var notifyOnlyWhenAppsUseProxy = false
+    /// Notify when an automatic region check finds a service newly blocked through the proxy.
+    var notifyServiceBlocked = true
 
     init() {}
 
@@ -51,6 +59,10 @@ struct ProxySettings: Codable, Equatable {
         cleanupAfterQuit = try c.decodeIfPresent(Bool.self, forKey: .cleanupAfterQuit) ?? d.cleanupAfterQuit
         checkDirectToo = try c.decodeIfPresent(Bool.self, forKey: .checkDirectToo) ?? d.checkDirectToo
         regionCheckIntervalMinutes = try c.decodeIfPresent(Int.self, forKey: .regionCheckIntervalMinutes) ?? d.regionCheckIntervalMinutes
+        notifyProxyDown = try c.decodeIfPresent(Bool.self, forKey: .notifyProxyDown) ?? d.notifyProxyDown
+        notifyProxyUp = try c.decodeIfPresent(Bool.self, forKey: .notifyProxyUp) ?? d.notifyProxyUp
+        notifyOnlyWhenAppsUseProxy = try c.decodeIfPresent(Bool.self, forKey: .notifyOnlyWhenAppsUseProxy) ?? d.notifyOnlyWhenAppsUseProxy
+        notifyServiceBlocked = try c.decodeIfPresent(Bool.self, forKey: .notifyServiceBlocked) ?? d.notifyServiceBlocked
     }
 
     var url: String { "\(scheme.rawValue)://\(host):\(port)" }

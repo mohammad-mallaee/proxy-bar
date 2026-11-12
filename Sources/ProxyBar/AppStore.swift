@@ -71,6 +71,8 @@ final class AppStore {
     @ObservationIgnored private var iconCache: [String: NSImage] = [:]
     @ObservationIgnored private var loopTask: Task<Void, Never>?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private var consecutiveProxyFailures = 0
+    @ObservationIgnored private var proxyDownNotified = false
 
     private enum Keys {
         static let settings = "settings.v1"
@@ -99,6 +101,7 @@ final class AppStore {
     // MARK: - Background refresh
 
     private func start() {
+        Notifier.shared.setUp()
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -131,6 +134,39 @@ final class AppStore {
         // The proxy came back: the exit may have changed, so re-check services.
         if wasDown && newState.isUp && !checking {
             Task { await runRegionCheck(automatic: true) }
+        }
+        handleProxyNotifications(isUp: newState.isUp)
+    }
+
+    /// Notifies after two failed checks in a row (so a quick proxy restart stays quiet),
+    /// and again when the proxy answers after a "down" notification.
+    private func handleProxyNotifications(isUp: Bool) {
+        let endpoint = "\(settings.host):\(settings.port)"
+        if isUp {
+            consecutiveProxyFailures = 0
+            if proxyDownNotified {
+                proxyDownNotified = false
+                if settings.notifyProxyUp {
+                    Notifier.shared.post(title: "Proxy is back", body: "\(endpoint) is answering again.")
+                }
+            }
+            return
+        }
+
+        consecutiveProxyFailures += 1
+        guard consecutiveProxyFailures == 2, !proxyDownNotified, settings.notifyProxyDown else { return }
+        let users = appsUsingProxy().map(\.name)
+        if settings.notifyOnlyWhenAppsUseProxy && users.isEmpty { return }
+        proxyDownNotified = true
+        let affected = users.isEmpty ? "" : " \(users.joined(separator: ", ")) can't connect until it's back."
+        Notifier.shared.post(title: "Proxy is down", body: "Nothing is answering on \(endpoint).\(affected)")
+    }
+
+    /// Managed apps that are running with a proxy in their environment.
+    func appsUsingProxy() -> [ManagedApp] {
+        apps.filter { app in
+            let status = status(for: app)
+            return status.running && status.proxyValue != nil
         }
     }
 
@@ -295,7 +331,26 @@ final class AppStore {
         if !automatic { await checkProxy() }
         let enabled = services.filter(\.enabled)
         let newReport = await RegionChecker.run(settings: settings, services: enabled, includeDirect: settings.checkDirectToo)
+        let previous = report
         report = newReport
+        if automatic { notifyNewlyBlocked(previous: previous, current: newReport) }
+    }
+
+    /// Services that went from available to blocked through the proxy since the last check.
+    private func notifyNewlyBlocked(previous: RegionReport?, current: RegionReport) {
+        guard settings.notifyServiceBlocked, let previous else { return }
+        let newlyBlocked = services.filter { service in
+            service.enabled
+                && previous.result(for: service.id)?.viaProxy?.isAvailable == true
+                && current.result(for: service.id)?.viaProxy?.isBlocked == true
+        }
+        guard !newlyBlocked.isEmpty else { return }
+        let names = newlyBlocked.map(\.name).joined(separator: ", ")
+        let exit = current.proxyExit?.country.map { " (exit: \($0))" } ?? ""
+        Notifier.shared.post(
+            title: newlyBlocked.count == 1 ? "\(names) is blocked" : "Services blocked",
+            body: "\(names) now refuse\(newlyBlocked.count == 1 ? "s" : "") connections through your proxy\(exit)."
+        )
     }
 
     /// Services this app depends on that are blocked through the proxy in the latest report.

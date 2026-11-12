@@ -46,6 +46,18 @@ private struct GeneralSettings: View {
                 }
             }
 
+            Section("Notifications") {
+                Toggle("When the proxy stops answering", isOn: $store.settings.notifyProxyDown)
+                Toggle("Only while an app is running through it", isOn: $store.settings.notifyOnlyWhenAppsUseProxy)
+                    .disabled(!store.settings.notifyProxyDown)
+                    .padding(.leading, 16)
+                Toggle("When the proxy is back", isOn: $store.settings.notifyProxyUp)
+                Toggle("When a service becomes blocked through the proxy", isOn: $store.settings.notifyServiceBlocked)
+                Button("Send a test notification") {
+                    Notifier.shared.post(title: "ProxyBar", body: "Notifications are working.")
+                }
+            }
+
             Section("Behavior") {
                 Toggle("Ask before launching when the proxy isn't reachable", isOn: $store.settings.warnWhenProxyDown)
                 Toggle("Clean up leftover processes after quitting an app", isOn: $store.settings.cleanupAfterQuit)
