@@ -55,12 +55,24 @@ final class AppStore {
     var proxyState: ProxyState = .checking
     var statuses: [UUID: AppStatus] = [:]
     var busy: Set<UUID> = []
-    var message: String?
+    /// Status line under the app list. Clears itself after a few seconds.
+    var message: String? {
+        didSet {
+            messageClearTask?.cancel()
+            guard let current = message else { return }
+            messageClearTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(6))
+                guard !Task.isCancelled, let self, self.message == current else { return }
+                self.message = nil
+            }
+        }
+    }
+    @ObservationIgnored private var messageClearTask: Task<Void, Never>?
     /// A region check is running.
     var checking = false
     var report: RegionReport?
-    /// Whether the menu shows the per-service table.
-    var regionExpanded = true
+    /// Whether the menu shows the per-service details (collapsed by default).
+    var regionExpanded = false
 
     // UI state for the Settings window (kept here because @State isn't available without Xcode).
     var selectedAppID: UUID?

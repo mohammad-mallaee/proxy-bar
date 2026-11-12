@@ -1,24 +1,30 @@
 import SwiftUI
 
 /// The panel that opens from the menu bar icon.
+///
+/// Layout, top to bottom:
+///   proxy (one line) · region summary (one line, click to expand) · apps · footer icons
 struct MenuView: View {
     @Bindable var store: AppStore
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             ProxyHeader(store: store)
+                .padding(.bottom, 8)
 
-            RegionSection(store: store)
+            RegionSummary(store: store)
 
-            Divider()
+            Divider().padding(.vertical, 8)
 
-            if store.apps.isEmpty {
-                Text("No apps yet. Add some in Settings.")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(store.apps) { app in
-                    AppRow(store: store, app: app)
+            VStack(alignment: .leading, spacing: 8) {
+                if store.apps.isEmpty {
+                    Text("No apps yet. Add some in Settings.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(store.apps) { app in
+                        AppRow(store: store, app: app)
+                    }
                 }
             }
 
@@ -27,11 +33,13 @@ struct MenuView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                    .transition(.opacity)
             }
 
-            Divider()
+            Divider().padding(.vertical, 8)
 
-            HStack {
+            HStack(spacing: 12) {
                 TerminalMenu(store: store)
                 Spacer()
                 Button {
@@ -49,10 +57,215 @@ struct MenuView: View {
                 .help("Quit ProxyBar")
             }
             .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
         }
         .padding(12)
-        .frame(width: 380)
+        .frame(width: 340)
+        .animation(.easeInOut(duration: 0.15), value: store.regionExpanded)
+        .animation(.easeInOut(duration: 0.2), value: store.message)
         .task { await store.refreshApps() }
+    }
+}
+
+// MARK: - Proxy header
+
+private struct ProxyHeader: View {
+    @Bindable var store: AppStore
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 8, height: 8)
+            Text(store.settings.url)
+                .font(.system(.callout, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Text(stateText)
+                .font(.caption)
+                .foregroundStyle(store.proxyState == .down ? .red : .secondary)
+        }
+        .help(store.proxyState == .down
+              ? "Nothing is answering on \(store.settings.host):\(store.settings.port)"
+              : "Proxy port connect time")
+    }
+
+    private var dotColor: Color {
+        switch store.proxyState {
+        case .checking: return .gray
+        case .up: return .green
+        case .down: return .red
+        }
+    }
+
+    private var stateText: String {
+        switch store.proxyState {
+        case .checking: return "…"
+        case .up(let ms): return "\(max(1, Int(ms))) ms"
+        case .down: return "Not reachable"
+        }
+    }
+}
+
+// MARK: - Region summary (collapsed by default)
+
+private struct RegionSummary: View {
+    @Bindable var store: AppStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Button {
+                    store.regionExpanded.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .rotationEffect(.degrees(store.regionExpanded ? 90 : 0))
+                            .foregroundStyle(.secondary)
+                        summary
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(store.report == nil)
+
+                if store.checking {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Button {
+                        Task { await store.runRegionCheck() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Check your exit country and the services you use")
+                }
+            }
+
+            if store.regionExpanded, let report = store.report {
+                RegionDetails(store: store, report: report)
+                    .padding(.leading, 14)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var summary: some View {
+        if let report = store.report {
+            let enabled = store.services.filter(\.enabled)
+            let blocked = enabled.filter { report.result(for: $0.id)?.viaProxy?.isBlocked == true }
+            let failed = enabled.filter {
+                if case .unreachable = report.result(for: $0.id)?.viaProxy { return true }
+                return false
+            }
+            let ok = enabled.count - blocked.count - failed.count
+            HStack(spacing: 4) {
+                if let country = report.proxyExit?.country {
+                    Text("\(RegionChecker.flag(for: country)) \(country)")
+                    Text("·").foregroundStyle(.tertiary)
+                }
+                if blocked.isEmpty && failed.isEmpty {
+                    Text("All \(enabled.count) services OK").foregroundStyle(.secondary)
+                } else {
+                    Text("\(ok)/\(enabled.count) OK").foregroundStyle(.secondary)
+                    Text("·").foregroundStyle(.tertiary)
+                    Text(problemText(blocked: blocked, failed: failed))
+                        .foregroundStyle(blocked.isEmpty ? .orange : .red)
+                        .lineLimit(1)
+                }
+            }
+            .font(.caption)
+        } else {
+            Text(store.checking ? "Checking services…" : "Services not checked yet")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func problemText(blocked: [ServiceCheck], failed: [ServiceCheck]) -> String {
+        if blocked.count == 1 && failed.isEmpty { return "\(blocked[0].name) blocked" }
+        if failed.count == 1 && blocked.isEmpty { return "\(failed[0].name) no reply" }
+        var parts: [String] = []
+        if !blocked.isEmpty { parts.append("\(blocked.count) blocked") }
+        if !failed.isEmpty { parts.append("\(failed.count) no reply") }
+        return parts.joined(separator: ", ")
+    }
+}
+
+private struct RegionDetails: View {
+    @Bindable var store: AppStore
+    let report: RegionReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+                GridRow {
+                    Text("")
+                    Text("Proxy")
+                    if store.settings.checkDirectToo { Text("Direct") }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+                ForEach(store.services.filter(\.enabled)) { service in
+                    let result = report.result(for: service.id)
+                    GridRow {
+                        Text(service.name).lineLimit(1)
+                        VerdictIcon(verdict: result?.viaProxy)
+                        if store.settings.checkDirectToo {
+                            VerdictIcon(verdict: result?.direct)
+                        }
+                    }
+                    .font(.caption)
+                }
+            }
+
+            Text(footerText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+
+            ForEach(report.errors, id: \.self) { error in
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var footerText: String {
+        var parts: [String] = []
+        if let ip = report.proxyExit?.ip { parts.append("Exit IP \(ip)") }
+        if let direct = report.directExit?.country { parts.append("direct \(RegionChecker.flag(for: direct)) \(direct)") }
+        if let ms = report.googleMs { parts.append("Google \(Int(ms)) ms") }
+        parts.append(report.date.formatted(.relative(presentation: .named)))
+        return parts.joined(separator: " · ")
+    }
+}
+
+private struct VerdictIcon: View {
+    let verdict: ServiceVerdict?
+
+    var body: some View {
+        Group {
+            switch verdict {
+            case .available?:
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            case .blocked?:
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            case .unreachable?:
+                Image(systemName: "questionmark.circle.fill").foregroundStyle(.orange)
+            case nil:
+                Text("–").foregroundStyle(.secondary)
+            }
+        }
+        .help(verdict?.detail ?? "Not checked")
     }
 }
 
@@ -82,172 +295,12 @@ private struct TerminalMenu: View {
             Divider()
             Button("Copy shell exports") { store.copyShellExports() }
         } label: {
-            Label("Terminal with proxy", systemImage: "terminal")
+            Image(systemName: "terminal")
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
-        .help("Open \(store.settings.terminalApp.name) with the proxy variables set")
-    }
-}
-
-// MARK: - Proxy header
-
-private struct ProxyHeader: View {
-    @Bindable var store: AppStore
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 9, height: 9)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(store.settings.url)
-                    .font(.system(.body, design: .monospaced))
-                Text(stateText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if store.checking {
-                ProgressView().controlSize(.small)
-            } else {
-                Button("Check") { Task { await store.runRegionCheck() } }
-                    .help("Check Google, your exit IP and country, and every service in the region list")
-            }
-        }
-    }
-
-    private var dotColor: Color {
-        switch store.proxyState {
-        case .checking: return .gray
-        case .up: return .green
-        case .down: return .red
-        }
-    }
-
-    private var stateText: String {
-        switch store.proxyState {
-        case .checking: return "Checking…"
-        case .up(let ms): return "Proxy port reachable · \(max(1, Int(ms))) ms"
-        case .down: return "Proxy not reachable"
-        }
-    }
-}
-
-// MARK: - Region check
-
-private struct RegionSection: View {
-    @Bindable var store: AppStore
-
-    var body: some View {
-        if let report = store.report {
-            VStack(alignment: .leading, spacing: 6) {
-                exitLine(report)
-
-                DisclosureGroup(isExpanded: $store.regionExpanded) {
-                    serviceGrid(report)
-                        .padding(.top, 4)
-                } label: {
-                    summaryLabel(report)
-                }
-
-                ForEach(report.errors, id: \.self) { error in
-                    Label(error, systemImage: "xmark.octagon.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            }
-        } else if store.checking {
-            Text("Checking services…")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func exitLine(_ report: RegionReport) -> some View {
-        HStack(spacing: 10) {
-            if let exit = report.proxyExit {
-                Text("Exit \(countryText(exit.country)) · \(exit.ip ?? "?")")
-                    .textSelection(.enabled)
-            }
-            if let direct = report.directExit {
-                Text("Direct \(countryText(direct.country))")
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if let ms = report.googleMs {
-                Text("Google \(Int(ms)) ms")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.caption)
-    }
-
-    private func summaryLabel(_ report: RegionReport) -> some View {
-        let enabled = store.services.filter(\.enabled)
-        let blocked = enabled.filter { report.result(for: $0.id)?.viaProxy?.isBlocked == true }
-        let unreachable = enabled.filter {
-            if case .unreachable = report.result(for: $0.id)?.viaProxy { return true }
-            return false
-        }
-        var text = blocked.isEmpty && unreachable.isEmpty
-            ? "All \(enabled.count) services available through the proxy"
-            : "\(blocked.count) blocked, \(unreachable.count) unreachable through the proxy"
-        text += " · " + report.date.formatted(.relative(presentation: .named))
-        return Text(text)
-            .font(.caption)
-            .foregroundStyle(blocked.isEmpty && unreachable.isEmpty ? Color.secondary : Color.orange)
-    }
-
-    private func serviceGrid(_ report: RegionReport) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 3) {
-            GridRow {
-                Text("Service")
-                Text("Proxy")
-                if store.settings.checkDirectToo { Text("Direct") }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-
-            ForEach(store.services.filter(\.enabled)) { service in
-                let result = report.result(for: service.id)
-                GridRow {
-                    Text(service.name)
-                        .lineLimit(1)
-                    VerdictBadge(verdict: result?.viaProxy)
-                    if store.settings.checkDirectToo {
-                        VerdictBadge(verdict: result?.direct)
-                    }
-                }
-                .font(.caption)
-            }
-        }
-    }
-
-    private func countryText(_ code: String?) -> String {
-        guard let code else { return "?" }
-        return "\(RegionChecker.flag(for: code)) \(code)"
-    }
-}
-
-private struct VerdictBadge: View {
-    let verdict: ServiceVerdict?
-
-    var body: some View {
-        Group {
-            switch verdict {
-            case .available?:
-                Label("OK", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-            case .blocked?:
-                Label("Blocked", systemImage: "hand.raised.fill").foregroundStyle(.red)
-            case .unreachable?:
-                Label("No reply", systemImage: "questionmark.circle").foregroundStyle(.orange)
-            case nil:
-                Text("–").foregroundStyle(.secondary)
-            }
-        }
-        .labelStyle(.titleAndIcon)
-        .help(verdict?.detail ?? "Not checked")
+        .help("Terminal with proxy")
     }
 }
 
@@ -263,20 +316,24 @@ private struct AppRow: View {
         HStack(spacing: 10) {
             Image(nsImage: store.icon(for: app))
                 .resizable()
-                .frame(width: 26, height: 26)
+                .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 1) {
                 Text(app.name)
-                Text(statusText(status))
-                    .font(.caption)
-                    .foregroundStyle(statusColor(status))
-                    .help(leftoverHelp(status))
-                if !blocked.isEmpty {
-                    Label("Blocked through proxy: " + blocked.map(\.name).joined(separator: ", "),
-                          systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .help("Your proxy's exit IP is blocked by these services. Try another proxy server or country.")
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(statusText(status))
+                        .foregroundStyle(statusColor(status))
+                        .help(leftoverHelp(status))
+                    if !blocked.isEmpty {
+                        Text("·").foregroundStyle(.tertiary)
+                        Text(blocked.count == 1 ? "\(blocked[0].name) blocked" : "\(blocked.count) services blocked")
+                            .foregroundStyle(.red)
+                            .lineLimit(1)
+                            .help("Blocked through the proxy: " + blocked.map(\.name).joined(separator: ", ")
+                                  + ". Try another proxy server or country.")
+                    }
                 }
+                .font(.caption)
             }
             Spacer()
             if store.busy.contains(app.id) {
@@ -289,7 +346,7 @@ private struct AppRow: View {
 
     @ViewBuilder
     private func buttons(_ status: AppStatus) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             if status.running {
                 iconButton("arrow.clockwise", help: "Quit and relaunch through the proxy") {
                     await store.relaunch(app)
@@ -318,7 +375,7 @@ private struct AppRow: View {
         Button {
             Task { await action() }
         } label: {
-            Image(systemName: symbol).frame(width: 18, height: 18)
+            Image(systemName: symbol).frame(width: 20, height: 20)
         }
         .help(help)
     }
@@ -326,11 +383,11 @@ private struct AppRow: View {
     private func statusText(_ s: AppStatus) -> String {
         if !s.running {
             let n = s.leftovers.count
-            return n == 0 ? "Not running" : "Not running · \(n) leftover process\(n == 1 ? "" : "es")"
+            return n == 0 ? "Not running" : "\(n) leftover process\(n == 1 ? "" : "es")"
         }
-        guard s.envReadable else { return "Running · proxy status unknown" }
-        guard let value = s.proxyValue else { return "Running · not through the proxy" }
-        return value == store.settings.url ? "Running · through the proxy" : "Running · through \(value)"
+        guard s.envReadable else { return "Running" }
+        guard let value = s.proxyValue else { return "Running without proxy" }
+        return value == store.settings.url ? "Through proxy" : "Through \(value)"
     }
 
     private func statusColor(_ s: AppStatus) -> Color {
