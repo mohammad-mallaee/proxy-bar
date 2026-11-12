@@ -29,6 +29,10 @@ struct ProxySettings: Codable, Equatable {
     var warnWhenProxyDown = true
     /// After quitting an app from ProxyBar, kill its leftover processes automatically.
     var cleanupAfterQuit = false
+    /// Region check: also test each service without the proxy, to show what the proxy fixes.
+    var checkDirectToo = true
+    /// Re-run the region check automatically every N minutes (0 = only at start and when the proxy reconnects).
+    var regionCheckIntervalMinutes = 30
 
     init() {}
 
@@ -45,6 +49,8 @@ struct ProxySettings: Codable, Equatable {
         nodeUseEnvProxy = try c.decodeIfPresent(Bool.self, forKey: .nodeUseEnvProxy) ?? d.nodeUseEnvProxy
         warnWhenProxyDown = try c.decodeIfPresent(Bool.self, forKey: .warnWhenProxyDown) ?? d.warnWhenProxyDown
         cleanupAfterQuit = try c.decodeIfPresent(Bool.self, forKey: .cleanupAfterQuit) ?? d.cleanupAfterQuit
+        checkDirectToo = try c.decodeIfPresent(Bool.self, forKey: .checkDirectToo) ?? d.checkDirectToo
+        regionCheckIntervalMinutes = try c.decodeIfPresent(Int.self, forKey: .regionCheckIntervalMinutes) ?? d.regionCheckIntervalMinutes
     }
 
     var url: String { "\(scheme.rawValue)://\(host):\(port)" }
@@ -74,7 +80,7 @@ struct ProxySettings: Codable, Equatable {
     /// One line to paste into a terminal.
     var shellExports: String {
         "export " + environment.sorted { $0.key < $1.key }
-            .map { "\($0.key)='\($0.value)'" }
+            .map { "\($0.key)=\(shellQuote($0.value))" }
             .joined(separator: " ")
     }
 
@@ -102,6 +108,20 @@ struct ProxySettings: Codable, Equatable {
         }
         return cfg
     }
+
+    /// A URLSession configuration that bypasses every proxy, including system settings and PAC.
+    static func directSessionConfiguration() -> URLSessionConfiguration {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 10
+        cfg.timeoutIntervalForResource = 15
+        cfg.connectionProxyDictionary = [
+            kCFNetworkProxiesHTTPEnable as String: 0,
+            kCFNetworkProxiesHTTPSEnable as String: 0,
+            kCFNetworkProxiesSOCKSEnable as String: 0,
+            kCFNetworkProxiesProxyAutoConfigEnable as String: 0,
+        ]
+        return cfg
+    }
 }
 
 // MARK: - Managed apps
@@ -119,6 +139,8 @@ struct ManagedApp: Codable, Identifiable, Hashable {
     var cleanupPatterns = ""
     /// Extra KEY=VALUE lines added to the environment for this app only.
     var extraEnvironment = ""
+    /// IDs of the ServiceChecks this app depends on (shown as warnings when blocked).
+    var serviceIDs: [String] = []
 
     init(path: String, bundleID: String, name: String) {
         self.path = path
@@ -136,6 +158,7 @@ struct ManagedApp: Codable, Identifiable, Hashable {
         launchOnStart = try c.decodeIfPresent(Bool.self, forKey: .launchOnStart) ?? false
         cleanupPatterns = try c.decodeIfPresent(String.self, forKey: .cleanupPatterns) ?? ""
         extraEnvironment = try c.decodeIfPresent(String.self, forKey: .extraEnvironment) ?? ""
+        serviceIDs = try c.decodeIfPresent([String].self, forKey: .serviceIDs) ?? []
     }
 
     /// Builds an entry from an .app bundle on disk.
@@ -147,6 +170,10 @@ struct ManagedApp: Codable, Identifiable, Hashable {
             ?? url.deletingPathExtension().lastPathComponent
         var app = ManagedApp(path: url.path, bundleID: bundleID, name: name)
         app.useChromiumProxyFlag = isElectron(path: url.path)
+        if let known = KnownApps.entry(forPath: url.path) {
+            app.serviceIDs = known.services
+            app.cleanupPatterns = known.cleanup
+        }
         return app
     }
 
@@ -156,15 +183,8 @@ struct ManagedApp: Codable, Identifiable, Hashable {
 
     /// Apps added on first run, if they're installed.
     static func defaults() -> [ManagedApp] {
-        let candidates: [(String, String)] = [
-            ("/Applications/T3 Code (Beta).app", "agy_acp_server, localharness_external"),
-            ("/Applications/Claude.app", ""),
-        ]
-        return candidates.compactMap { path, cleanup in
-            guard FileManager.default.fileExists(atPath: path),
-                  var app = make(from: URL(fileURLWithPath: path)) else { return nil }
-            app.cleanupPatterns = cleanup
-            return app
+        ["/Applications/T3 Code (Beta).app", "/Applications/Claude.app"].compactMap { path in
+            FileManager.default.fileExists(atPath: path) ? make(from: URL(fileURLWithPath: path)) : nil
         }
     }
 
@@ -193,4 +213,9 @@ struct ManagedApp: Codable, Identifiable, Hashable {
         if p.path.hasPrefix(path + "/") { return true }
         return cleanupPatternList.contains { p.name.localizedCaseInsensitiveContains($0) }
     }
+}
+
+/// Quotes a string for POSIX shells: 'it'\''s' style.
+func shellQuote(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }

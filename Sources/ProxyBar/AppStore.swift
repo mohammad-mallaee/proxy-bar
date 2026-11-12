@@ -30,8 +30,8 @@ final class AppStore {
         didSet {
             guard settings != oldValue else { return }
             persist()
-            if settings.host != oldValue.host || settings.port != oldValue.port {
-                lastTest = nil
+            if settings.host != oldValue.host || settings.port != oldValue.port || settings.scheme != oldValue.scheme {
+                report = nil
                 Task { await checkProxy() }
             }
         }
@@ -45,15 +45,26 @@ final class AppStore {
         }
     }
 
+    var services: [ServiceCheck] {
+        didSet {
+            guard services != oldValue else { return }
+            persist()
+        }
+    }
+
     var proxyState: ProxyState = .checking
     var statuses: [UUID: AppStatus] = [:]
     var busy: Set<UUID> = []
     var message: String?
-    var testing = false
-    var lastTest: ConnectionTest?
+    /// A region check is running.
+    var checking = false
+    var report: RegionReport?
+    /// Whether the menu shows the per-service table.
+    var regionExpanded = true
 
     // UI state for the Settings window (kept here because @State isn't available without Xcode).
     var selectedAppID: UUID?
+    var selectedServiceID: String?
     var loginStatus: SMAppService.Status = SMAppService.mainApp.status
     var loginError: String?
 
@@ -64,6 +75,7 @@ final class AppStore {
     private enum Keys {
         static let settings = "settings.v1"
         static let apps = "apps.v1"
+        static let services = "services.v1"
     }
 
     init() {
@@ -72,6 +84,8 @@ final class AppStore {
             .flatMap { try? JSONDecoder().decode(ProxySettings.self, from: $0) } ?? ProxySettings()
         apps = defaults.data(forKey: Keys.apps)
             .flatMap { try? JSONDecoder().decode([ManagedApp].self, from: $0) } ?? ManagedApp.defaults()
+        services = defaults.data(forKey: Keys.services)
+            .flatMap { try? JSONDecoder().decode([ServiceCheck].self, from: $0) } ?? ServiceCheck.presets
         start()
     }
 
@@ -79,6 +93,7 @@ final class AppStore {
         let defaults = UserDefaults.standard
         if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: Keys.settings) }
         if let data = try? JSONEncoder().encode(apps) { defaults.set(data, forKey: Keys.apps) }
+        if let data = try? JSONEncoder().encode(services) { defaults.set(data, forKey: Keys.services) }
     }
 
     // MARK: - Background refresh
@@ -95,6 +110,7 @@ final class AppStore {
             await self?.checkProxy()
             await self?.refreshApps()
             await self?.launchStartupApps()
+            await self?.runRegionCheck(automatic: true)
             var tick = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
@@ -102,6 +118,7 @@ final class AppStore {
                 tick += 1
                 await self.refreshApps()
                 if tick % 3 == 0 { await self.checkProxy() }
+                if self.regionCheckIsDue { await self.runRegionCheck(automatic: true) }
             }
         }
     }
@@ -109,7 +126,12 @@ final class AppStore {
     func checkProxy() async {
         let ms = await TCPProbe.connect(host: settings.host, port: settings.port)
         let newState: ProxyState = ms.map { .up(ms: $0) } ?? .down
+        let wasDown = proxyState == .down
         if newState != proxyState { proxyState = newState }
+        // The proxy came back: the exit may have changed, so re-check services.
+        if wasDown && newState.isUp && !checking {
+            Task { await runRegionCheck(automatic: true) }
+        }
     }
 
     func refreshApps() async {
@@ -256,14 +278,42 @@ final class AppStore {
         return alert.runModal() == .alertSecondButtonReturn
     }
 
-    // MARK: - Connection test & misc
+    // MARK: - Region check
 
-    func testConnection() async {
-        testing = true
-        defer { testing = false }
-        await checkProxy()
-        lastTest = await ConnectionTester.run(settings: settings)
+    private var regionCheckIsDue: Bool {
+        guard settings.regionCheckIntervalMinutes > 0, !checking, proxyState.isUp else { return false }
+        guard let report else { return true }
+        return Date().timeIntervalSince(report.date) >= Double(settings.regionCheckIntervalMinutes) * 60
     }
+
+    /// Checks every enabled service through the proxy (and directly, if enabled).
+    func runRegionCheck(automatic: Bool = false) async {
+        guard !checking else { return }
+        if automatic && !proxyState.isUp { return }
+        checking = true
+        defer { checking = false }
+        if !automatic { await checkProxy() }
+        let enabled = services.filter(\.enabled)
+        let newReport = await RegionChecker.run(settings: settings, services: enabled, includeDirect: settings.checkDirectToo)
+        report = newReport
+    }
+
+    /// Services this app depends on that are blocked through the proxy in the latest report.
+    func blockedServices(for app: ManagedApp) -> [ServiceCheck] {
+        guard let report else { return [] }
+        return services.filter { service in
+            service.enabled && app.serviceIDs.contains(service.id)
+                && report.result(for: service.id)?.viaProxy?.isBlocked == true
+        }
+    }
+
+    func restoreDefaultServices() {
+        for preset in ServiceCheck.presets where !services.contains(where: { $0.id == preset.id }) {
+            services.append(preset)
+        }
+    }
+
+    // MARK: - Misc
 
     func copyShellExports() {
         NSPasteboard.general.clearContents()
