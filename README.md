@@ -6,9 +6,11 @@ Launch selected Mac apps with your HTTP or SOCKS5 proxy. From the menu bar, you 
 
 ## Get started
 
-You’ll need **macOS 14 or later**, a copy of **ProxyBar.app**, and the host and port of a running HTTP or SOCKS5 proxy.
+[ProxyBar-0.2.1-macos-arm64.dmg](https://github.com/mohammad-mallaee/proxy-bar/releases/download/v0.2.1/ProxyBar-0.2.1-macos-arm64.dmg)
 
-1. **Open ProxyBar.** Move `ProxyBar.app` to Applications and open it in Finder. Look for the network icon in the menu bar.
+The download requires an **Apple silicon Mac** running **macOS 14 or later**. Have your HTTP or SOCKS5 proxy’s host and port handy.
+
+1. **Open ProxyBar.** Open the DMG, drag `ProxyBar.app` to Applications, then open the app from Applications. Look for the network icon in the menu bar.
 2. **Connect your proxy.** In first-run setup, choose HTTP or SOCKS5 and enter the proxy’s host and port. Use `localhost` if the proxy runs on this Mac. Choose the apps and services you want to manage, then finish setup.
 3. **Launch an app.** Click the menu bar icon and use the play button next to an app. If the app is already running, use the circular arrow on its row to quit and relaunch it with the proxy settings.
 
@@ -24,4 +26,4 @@ If the menu says **Not reachable**, check that your proxy is running and that th
 
 ## Project links
 
-[Release history](docs/PROGRESS.md#changelog) · [Build from source and contribute](CONTRIBUTING.md)
+[GitHub releases](https://github.com/mohammad-mallaee/proxy-bar/releases) · [Build from source and contribute](CONTRIBUTING.md)
