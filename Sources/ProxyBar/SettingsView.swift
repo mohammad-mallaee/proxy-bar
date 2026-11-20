@@ -273,11 +273,15 @@ private struct RegionSettings: View {
                 .foregroundStyle(.secondary)
 
             LabeledContent("Re-check automatically") {
-                Picker("Re-check automatically", selection: $store.settings.regionCheckIntervalMinutes) {
+                Picker("Re-check automatically", selection: $store.settings.regionCheckIntervalSeconds) {
                     Text("Only at start and when the proxy reconnects").tag(0)
-                    Text("Every 15 minutes").tag(15)
-                    Text("Every 30 minutes").tag(30)
-                    Text("Every hour").tag(60)
+                    Text("Every 5 seconds").tag(5)
+                    Text("Every 20 seconds").tag(20)
+                    Text("Every minute").tag(60)
+                    Text("Every 5 minutes").tag(300)
+                    Text("Every 15 minutes").tag(900)
+                    Text("Every 30 minutes").tag(1800)
+                    Text("Every hour").tag(3600)
                 }
                 .labelsHidden()
             }

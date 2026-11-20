@@ -16,6 +16,13 @@ When you're happy with a round: `git checkout main && git merge feature/v0.2`.
 
 ## Changelog
 
+### v0.2.1
+
+- Add 5-second, 20-second, 1-minute, and 5-minute automatic region checks. Preserve saved schedules and keep the schedule picker visible above the service list.
+- Add Ghostty and Kitty to the terminal picker and remove automatic focus from the Terminal menu button.
+- Make direct region comparisons opt-in, serialize app actions, and require confirmation for cleanup matches outside the app bundle.
+- Update the app icon and move developer documentation to `CONTRIBUTING.md`.
+
 ### v0.2.0: branch `feature/v0.2`
 
 | Commit | Feature |
@@ -51,7 +58,7 @@ Ideas from the 2026-11-12 brainstorm that aren't built yet, in rough priority or
 Smaller follow-ups noticed while building v0.2:
 
 - [ ] Region check: a per-service "Test" button in Settings, so you can iterate on a custom signature quickly
-- [ ] Terminal: support Ghostty / WezTerm / Warp (they don't run `.command` files the same way)
+- [ ] Terminal: support WezTerm and Warp
 - [ ] Notifications: click a "proxy is down" notification to open the menu
 - [ ] Unit tests for `ServiceCheck` judging, `ProcessInspector.environment(of:)` parsing and `shellQuote`
 

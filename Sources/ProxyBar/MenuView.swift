@@ -233,6 +233,7 @@ private struct TerminalMenu: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .focusable(false)
         .help("Terminal with proxy")
     }
 }

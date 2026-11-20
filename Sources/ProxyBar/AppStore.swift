@@ -39,6 +39,8 @@ final class AppStore {
             }
             if regionInputs != RegionInputs(settings: oldValue, services: services) {
                 invalidateRegionReport()
+            } else if settings.regionCheckIntervalSeconds != oldValue.regionCheckIntervalSeconds {
+                scheduleNextRegionCheck()
             }
         }
     }
@@ -89,6 +91,7 @@ final class AppStore {
 
     @ObservationIgnored private var iconCache: [String: NSImage] = [:]
     @ObservationIgnored private var loopTask: Task<Void, Never>?
+    @ObservationIgnored private var regionTimer: Task<Void, Never>?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var consecutiveProxyFailures = 0
     @ObservationIgnored private var proxyDownNotified = false
@@ -159,7 +162,6 @@ final class AppStore {
             await self?.checkProxy()
             await self?.refreshApps()
             await self?.launchStartupApps()
-            await self?.runRegionCheck(automatic: true)
             var tick = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
@@ -167,7 +169,6 @@ final class AppStore {
                 tick += 1
                 await self.refreshApps()
                 if tick % 3 == 0 { await self.checkProxy() }
-                if self.regionCheckIsDue { await self.runRegionCheck(automatic: true) }
             }
         }
     }
@@ -178,11 +179,13 @@ final class AppStore {
         let ms = await TCPProbe.connect(host: settings.host, port: settings.port)
         guard generation == proxyProbeGeneration else { return }
         let newState: ProxyState = ms.map { .up(ms: $0) } ?? .down
-        let wasDown = proxyState == .down
+        let wasUp = proxyState.isUp
         if newState != proxyState { proxyState = newState }
-        // The proxy came back: the exit may have changed, so re-check services.
-        if wasDown && newState.isUp && !checking {
+        // Check when the proxy first answers and whenever it comes back.
+        if !wasUp && newState.isUp && !checking {
             Task { await runRegionCheck(automatic: true) }
+        } else if wasUp && !newState.isUp {
+            scheduleNextRegionCheck()
         }
         handleProxyNotifications(isUp: newState.isUp)
     }
@@ -410,12 +413,21 @@ final class AppStore {
     private func invalidateRegionReport() {
         regionGeneration += 1
         report = nil
+        scheduleNextRegionCheck()
     }
 
-    private var regionCheckIsDue: Bool {
-        guard settings.regionCheckIntervalMinutes > 0, !checking, proxyState.isUp else { return false }
-        guard let report else { return true }
-        return Date().timeIntervalSince(report.date) >= Double(settings.regionCheckIntervalMinutes) * 60
+    private func scheduleNextRegionCheck() {
+        regionTimer?.cancel()
+        regionTimer = nil
+        let interval = settings.regionCheckIntervalSeconds
+        guard interval > 0, !checking, proxyState.isUp else { return }
+        let delay = report.map { max(0, Double(interval) - Date().timeIntervalSince($0.date)) } ?? 1
+        regionTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            self.regionTimer = nil
+            await self.runRegionCheck(automatic: true)
+        }
     }
 
     /// Checks every enabled service through the proxy (and directly, if enabled).
@@ -424,7 +436,11 @@ final class AppStore {
         if automatic && !proxyState.isUp { return }
         let generation = regionGeneration
         checking = true
-        defer { checking = false }
+        scheduleNextRegionCheck()
+        defer {
+            checking = false
+            scheduleNextRegionCheck()
+        }
         if !automatic { await checkProxy() }
         guard generation == regionGeneration else { return }
         let inputs = regionInputs

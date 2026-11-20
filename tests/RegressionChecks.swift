@@ -6,6 +6,7 @@ struct RegressionChecks {
         checkCleanupCandidates()
         try checkProcessIdentity()
         try checkDirectComparisonPreference()
+        try checkRegionIntervalMigration()
         await checkOverlappingOperations()
         print("Passed all ProxyBar regression checks.")
     }
@@ -54,6 +55,24 @@ struct RegressionChecks {
         let disabled = try decoder.decode(ProxySettings.self, from: Data(#"{"checkDirectToo":false}"#.utf8))
         precondition(!ProxySettings().checkDirectToo && !legacy.checkDirectToo)
         precondition(enabled.checkDirectToo && !disabled.checkDirectToo)
+    }
+
+    static func checkRegionIntervalMigration() throws {
+        let decoder = JSONDecoder()
+        for minutes in [0, 15, 30, 60] {
+            let data = Data("{\"regionCheckIntervalMinutes\":\(minutes)}".utf8)
+            let settings = try decoder.decode(ProxySettings.self, from: data)
+            precondition(settings.regionCheckIntervalSeconds == minutes * 60)
+        }
+        let legacyDefaults = try decoder.decode(ProxySettings.self, from: Data("{}".utf8))
+        precondition(legacyDefaults.regionCheckIntervalSeconds == 1800)
+
+        var settings = ProxySettings()
+        for seconds in [5, 20, 60, 300] {
+            settings.regionCheckIntervalSeconds = seconds
+            let decoded = try decoder.decode(ProxySettings.self, from: JSONEncoder().encode(settings))
+            precondition(decoded.regionCheckIntervalSeconds == seconds)
+        }
     }
 
     @MainActor

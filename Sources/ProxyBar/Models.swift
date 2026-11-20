@@ -31,8 +31,8 @@ struct ProxySettings: Codable, Equatable {
     var cleanupAfterQuit = false
     /// Region check: also test each service without the proxy, to show what the proxy fixes.
     var checkDirectToo = false
-    /// Re-run the region check automatically every N minutes (0 = only at start and when the proxy reconnects).
-    var regionCheckIntervalMinutes = 30
+    /// Delay between the end of a region check and the next automatic check. Zero means startup and reconnect only.
+    var regionCheckIntervalSeconds = 30 * 60
     /// Notify when the proxy stops answering (after two failed checks in a row).
     var notifyProxyDown = true
     /// Notify when it answers again.
@@ -48,6 +48,10 @@ struct ProxySettings: Codable, Equatable {
 
     init() {}
 
+    private enum LegacyCodingKeys: String, CodingKey {
+        case regionCheckIntervalMinutes
+    }
+
     // Decode field by field so settings saved by older versions keep loading
     // when new fields are added.
     init(from decoder: Decoder) throws {
@@ -62,7 +66,14 @@ struct ProxySettings: Codable, Equatable {
         warnWhenProxyDown = try c.decodeIfPresent(Bool.self, forKey: .warnWhenProxyDown) ?? d.warnWhenProxyDown
         cleanupAfterQuit = try c.decodeIfPresent(Bool.self, forKey: .cleanupAfterQuit) ?? d.cleanupAfterQuit
         checkDirectToo = try c.decodeIfPresent(Bool.self, forKey: .checkDirectToo) ?? d.checkDirectToo
-        regionCheckIntervalMinutes = try c.decodeIfPresent(Int.self, forKey: .regionCheckIntervalMinutes) ?? d.regionCheckIntervalMinutes
+        if let seconds = try c.decodeIfPresent(Int.self, forKey: .regionCheckIntervalSeconds) {
+            regionCheckIntervalSeconds = max(0, min(seconds, 3600))
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            if let minutes = try legacy.decodeIfPresent(Int.self, forKey: .regionCheckIntervalMinutes) {
+                regionCheckIntervalSeconds = max(0, min(minutes, 60)) * 60
+            }
+        }
         notifyProxyDown = try c.decodeIfPresent(Bool.self, forKey: .notifyProxyDown) ?? d.notifyProxyDown
         notifyProxyUp = try c.decodeIfPresent(Bool.self, forKey: .notifyProxyUp) ?? d.notifyProxyUp
         notifyOnlyWhenAppsUseProxy = try c.decodeIfPresent(Bool.self, forKey: .notifyOnlyWhenAppsUseProxy) ?? d.notifyOnlyWhenAppsUseProxy

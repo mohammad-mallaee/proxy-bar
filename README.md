@@ -21,8 +21,8 @@ On first launch, enter the host and port from your proxy app, choose the apps an
 
 - **Launch apps.** Add apps in **Settings → Apps**. Launch a stopped app from the menu or use **Relaunch** to restart a running app with your proxy settings. Right-click the stop button for **Force Quit**.
 - **Clean up after quitting.** Use the trash button when an app row shows leftover processes. ProxyBar asks before including processes outside the app bundle that match a configured name pattern. Automatic cleanup in **Settings → Proxy** is limited to processes inside the bundle.
-- **Check services.** Use the refresh button in the menu or open **Settings → Region** for per-service results. ProxyBar reports the exit IP and country when available. Choose which services to check, add custom endpoints, or disable direct comparisons in the Region tab.
-- **Open a proxied shell.** Use **Terminal with proxy** for your home folder, a chosen folder, or a recent folder. Choose Terminal or iTerm in **Settings → Proxy**, or use **Copy shell exports** in the menu to configure an existing shell.
+- **Check services.** Use the refresh button in the menu or open **Settings → Region** for per-service results. ProxyBar reports the exit IP and country when available. Choose which services to check, add custom endpoints, and set an automatic interval from 5 seconds to 1 hour. Each interval starts when the previous check finishes.
+- **Open a proxied shell.** Use **Terminal with proxy** for your home folder, a chosen folder, or a recent folder. Choose Terminal, iTerm, Ghostty, or Kitty in **Settings → Proxy**. The picker lists installed terminals. Use **Copy shell exports** to configure an existing shell.
 - **Automate startup and alerts.** Enable **Open ProxyBar at login** in the Proxy tab and **Start with ProxyBar** for individual apps. You can also enable alerts for proxy outages, recovery, and newly blocked services.
 
 ## How proxy settings apply
