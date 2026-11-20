@@ -1,36 +1,27 @@
 # ProxyBar
 
-Launch selected Mac apps through an HTTP or SOCKS5 proxy from the menu bar. ProxyBar shows whether the proxy port is reachable, reads running apps’ proxy settings where macOS permits it, and checks which services answer through the proxy.
+![ProxyBar for macOS, with a mint route branching across a dark teal app icon](docs/proxybar-cover.png)
+
+Launch selected Mac apps with your HTTP or SOCKS5 proxy. From the menu bar, you can check whether the proxy is reachable, see which services respond through it, and open a shell with the same proxy settings.
 
 ## Get started
 
-Requires macOS 14 or later and the Command Line Tools with Swift 6. Install the tools with `xcode-select --install` if needed.
+You’ll need **macOS 14 or later**, a copy of **ProxyBar.app**, and the host and port of a running HTTP or SOCKS5 proxy.
 
-From the project directory, build and open the app:
+1. **Open ProxyBar.** Move `ProxyBar.app` to Applications and open it in Finder. Look for the network icon in the menu bar.
+2. **Connect your proxy.** In first-run setup, choose HTTP or SOCKS5 and enter the proxy’s host and port. Use `localhost` if the proxy runs on this Mac. Choose the apps and services you want to manage, then finish setup.
+3. **Launch an app.** Click the menu bar icon and use the play button next to an app. If the app is already running, use the circular arrow on its row to quit and relaunch it with the proxy settings.
 
-```sh
-./build.sh
-open build/ProxyBar.app
-```
+If the menu says **Not reachable**, check that your proxy is running and that the host and port match its settings. To revisit setup, click the gear button and choose **Proxy → Run setup again…**.
 
-To keep a copy in `~/Applications`, use `./build.sh --install`. Use `./build.sh --run` to install and open it. The build uses ad-hoc signing for local use.
+## Use the menu bar
 
-On first launch, enter the host and port from your proxy app, choose the apps and services you use, and set your login and notification preferences. You can rerun setup from **Settings → Proxy → Run setup again…**.
+- **Check services.** Click the refresh button next to the region summary to check your proxy’s exit country and the services you selected. Open **Settings → Region** for individual results, custom endpoints, and automatic checks.
+- **Open a terminal with the proxy.** Click the terminal icon and pick a folder, or choose **Copy shell exports** for an existing shell. Select an installed terminal in **Settings → Proxy**. ProxyBar supports Terminal, iTerm, Ghostty, and Kitty.
+- **Manage apps and alerts.** Add more apps or configure per-app startup in **Settings → Apps**. Enable login startup and alerts for proxy outages, recovery, or newly blocked services in **Settings → Proxy**.
 
-## Use ProxyBar
+**Proxy configured** means ProxyBar found matching proxy settings in the app’s environment. Each app decides which requests honor those settings. Region checks use the proxy, and you can opt in to a direct comparison in **Settings → Region**.
 
-- **Launch apps.** Add apps in **Settings → Apps**. Launch a stopped app from the menu or use **Relaunch** to restart a running app with your proxy settings. Right-click the stop button for **Force Quit**.
-- **Clean up after quitting.** Use the trash button when an app row shows leftover processes. ProxyBar asks before including processes outside the app bundle that match a configured name pattern. Automatic cleanup in **Settings → Proxy** is limited to processes inside the bundle.
-- **Check services.** Use the refresh button in the menu or open **Settings → Region** for per-service results. ProxyBar reports the exit IP and country when available. Choose which services to check, add custom endpoints, and set an automatic interval from 5 seconds to 1 hour. Each interval starts when the previous check finishes.
-- **Open a proxied shell.** Use **Terminal with proxy** for your home folder, a chosen folder, or a recent folder. Choose Terminal, iTerm, Ghostty, or Kitty in **Settings → Proxy**. The picker lists installed terminals. Use **Copy shell exports** to configure an existing shell.
-- **Automate startup and alerts.** Enable **Open ProxyBar at login** in the Proxy tab and **Start with ProxyBar** for individual apps. You can also enable alerts for proxy outages, recovery, and newly blocked services.
+## Project links
 
-## How proxy settings apply
-
-ProxyBar supplies `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` when it launches an app. SOCKS5 also sets `ALL_PROXY`. You can enable lowercase variants and set `NODE_USE_ENV_PROXY=1` for Node.js 24+ `fetch()`. For supported Chromium/Electron apps, ProxyBar can also pass proxy and bypass flags. Add per-app overrides under **Extra environment** in the Apps tab. Each app controls which network requests honor these settings.
-
-Region checks send unauthenticated requests to the selected endpoints, plus Google for latency and Cloudflare for exit information. Opt in to direct comparison during setup or in **Settings → Region** to also contact the selected endpoints and Cloudflare outside the proxy. An expected authentication response such as HTTP 401 can mean the endpoint is available.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the code layout, development setup, and icon generator.
+[Release history](docs/PROGRESS.md#changelog) · [Build from source and contribute](CONTRIBUTING.md)
