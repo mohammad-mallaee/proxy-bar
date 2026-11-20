@@ -29,19 +29,57 @@ func render(pixels px: Int) -> Data {
     tile.fill()
     NSGraphicsContext.restoreGraphicsState()
 
-    NSGradient(colors: [
-        NSColor(srgbRed: 0.20, green: 0.48, blue: 0.98, alpha: 1),
-        NSColor(srgbRed: 0.04, green: 0.68, blue: 0.64, alpha: 1),
-    ])!.draw(in: tile, angle: -90)
-
-    let config = NSImage.SymbolConfiguration(pointSize: 430 * s, weight: .semibold)
-        .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
-    if let symbol = NSImage(systemSymbolName: "network", accessibilityDescription: nil)?
-        .withSymbolConfiguration(config) {
-        let size = symbol.size
-        symbol.draw(in: NSRect(x: (CGFloat(px) - size.width) / 2, y: (CGFloat(px) - size.height) / 2,
-                               width: size.width, height: size.height))
+    func color(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat, alpha: CGFloat = 1) -> NSColor {
+        NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
     }
+
+    NSGradient(colors: [
+        color(0.04, 0.12, 0.23),
+        color(0.08, 0.30, 0.39),
+    ])!.draw(in: tile, angle: 65)
+    color(0.57, 0.88, 0.98, alpha: 0.28).setStroke()
+    tile.lineWidth = 4 * s
+    tile.stroke()
+
+    func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+        NSPoint(x: x * s, y: y * s)
+    }
+
+    func node(at center: NSPoint, radius: CGFloat, fill: NSColor) {
+        let r = radius * s
+        fill.setFill()
+        NSBezierPath(ovalIn: NSRect(x: center.x - r, y: center.y - r, width: 2 * r, height: 2 * r)).fill()
+    }
+
+    let input = point(295, 408)
+    let outgoing = point(729, 656)
+    let bypass = point(729, 408)
+    let mint = color(0.57, 1, 0.81)
+    let muted = color(0.33, 0.58, 0.65)
+
+    // The shorter branch stays visible behind the highlighted proxy route.
+    let direct = NSBezierPath()
+    direct.move(to: input)
+    direct.line(to: bypass)
+    direct.lineWidth = 34 * s
+    muted.setStroke()
+    direct.stroke()
+    node(at: bypass, radius: 37, fill: muted)
+
+    let route = NSBezierPath()
+    route.move(to: input)
+    route.line(to: point(397, 408))
+    route.curve(to: point(512, 523), controlPoint1: point(461, 408), controlPoint2: point(512, 459))
+    route.line(to: point(512, 541))
+    route.curve(to: point(627, 656), controlPoint1: point(512, 605), controlPoint2: point(563, 656))
+    route.line(to: outgoing)
+    route.lineCapStyle = .round
+    route.lineWidth = 58 * s
+    mint.setStroke()
+    route.stroke()
+    node(at: input, radius: 53, fill: mint)
+    node(at: outgoing, radius: 60, fill: mint)
+    node(at: outgoing, radius: 24, fill: color(0.07, 0.27, 0.36))
 
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!

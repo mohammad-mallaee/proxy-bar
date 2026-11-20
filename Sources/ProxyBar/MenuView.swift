@@ -269,7 +269,7 @@ private struct AppRow: View {
                 .font(.caption)
             }
             Spacer()
-            if store.busy.contains(app.id) {
+            if store.isBusy(app) {
                 ProgressView().controlSize(.small)
             } else {
                 buttons(status)
@@ -324,8 +324,8 @@ private struct AppRow: View {
             return n == 0 ? "Not running" : "\(n) leftover process\(n == 1 ? "" : "es")"
         }
         guard s.envReadable else { return "Running" }
-        guard let value = s.proxyValue else { return "Running without proxy" }
-        return value == store.settings.url ? "Through proxy" : "Through \(value)"
+        guard let value = s.proxyValue else { return "No proxy in environment" }
+        return value == store.settings.url ? "Proxy configured" : "Different proxy configured"
     }
 
     private func statusColor(_ s: AppStatus) -> Color {

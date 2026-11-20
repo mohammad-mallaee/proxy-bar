@@ -68,6 +68,7 @@ final class OnboardingModel {
     var servicesTouched = false
     var openAtLogin: Bool
     var notifications: Bool
+    var checkDirectToo: Bool
     private let isRerun: Bool
     private let allServices: [ServiceCheck]
 
@@ -79,6 +80,7 @@ final class OnboardingModel {
         candidates = list
         openAtLogin = store.opensAtLogin
         notifications = store.settings.notifyProxyDown
+        checkDirectToo = store.settings.checkDirectToo
         isRerun = OnboardingController.isDone
         allServices = store.services
         if isRerun {
@@ -127,6 +129,7 @@ final class OnboardingModel {
         for index in store.services.indices {
             store.services[index].enabled = selectedServices.contains(store.services[index].id)
         }
+        store.settings.checkDirectToo = checkDirectToo
         Task { await store.runRegionCheck() }
         if openAtLogin != store.opensAtLogin { store.setOpensAtLogin(openAtLogin) }
         store.settings.notifyProxyDown = notifications
@@ -353,6 +356,12 @@ private struct ServicesStep: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(12)
+            Toggle("Compare with direct requests", isOn: $model.checkDirectToo)
+                .padding(.horizontal, 12)
+            Text("Sends requests outside the proxy to your selected services and to Cloudflare for your direct exit IP and country.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(12)
         }
     }
 }

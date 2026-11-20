@@ -5,6 +5,8 @@ struct ProcInfo: Hashable, Sendable {
     let pid: pid_t
     let ppid: pid_t
     let path: String
+    let startedAtSeconds: Int
+    let startedAtMicroseconds: Int32
     var name: String { (path as NSString).lastPathComponent }
 }
 
@@ -21,11 +23,28 @@ enum ProcessInspector {
         size = procs.count * stride
         guard sysctl(&mib, UInt32(mib.count), &procs, &size, nil, 0) == 0 else { return [] }
 
-        return procs.prefix(size / stride).compactMap { kp in
-            let pid = kp.kp_proc.p_pid
-            guard pid > 0, let path = executablePath(of: pid) else { return nil }
-            return ProcInfo(pid: pid, ppid: kp.kp_eproc.e_ppid, path: path)
-        }
+        return procs.prefix(size / stride).compactMap(processInfo)
+    }
+
+    /// Revalidates the original process identity before sending either signal.
+    static func signal(_ signal: Int32, to target: ProcInfo) -> Bool {
+        guard target.pid > 1, target.pid != getpid() else { return false }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, target.pid]
+        var process = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, UInt32(mib.count), &process, &size, nil, 0) == 0,
+              size == MemoryLayout<kinfo_proc>.stride,
+              processInfo(process) == target else { return false }
+        return kill(target.pid, signal) == 0
+    }
+
+    private static func processInfo(_ process: kinfo_proc) -> ProcInfo? {
+        let pid = process.kp_proc.p_pid
+        let start = process.kp_proc.p_un.__p_starttime
+        guard pid > 0, start.tv_sec > 0, process.kp_eproc.e_ucred.cr_uid == getuid(),
+              let path = executablePath(of: pid) else { return nil }
+        return ProcInfo(pid: pid, ppid: process.kp_eproc.e_ppid, path: path,
+                        startedAtSeconds: start.tv_sec, startedAtMicroseconds: start.tv_usec)
     }
 
     static func executablePath(of pid: pid_t) -> String? {

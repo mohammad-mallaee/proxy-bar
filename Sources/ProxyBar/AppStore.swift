@@ -63,7 +63,7 @@ final class AppStore {
 
     var proxyState: ProxyState = .checking
     var statuses: [UUID: AppStatus] = [:]
-    var busy: Set<UUID> = []
+    private let appOperations = AppOperations()
     /// Status line under the app list. Clears itself after a few seconds.
     var message: String? {
         didSet {
@@ -230,7 +230,9 @@ final class AppStore {
             if let pid = running.first?.processIdentifier {
                 if let env = ProcessInspector.environment(of: pid) {
                     status.envReadable = true
-                    status.proxyValue = env["HTTPS_PROXY"] ?? env["https_proxy"] ?? env["ALL_PROXY"] ?? env["all_proxy"]
+                    status.proxyValue = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]
+                        .compactMap { env[$0] }
+                        .first { !$0.isEmpty }
                 }
             } else {
                 status.leftovers = processes.filter { app.isLeftover($0) }
@@ -246,9 +248,17 @@ final class AppStore {
 
     func status(for app: ManagedApp) -> AppStatus { statuses[app.id] ?? AppStatus() }
 
+    func isBusy(_ app: ManagedApp) -> Bool { appOperations.active.contains(app.bundleID) }
+
     // MARK: - Launch / stop / cleanup
 
     func launch(_ app: ManagedApp, interactive: Bool = true) async {
+        _ = await appOperations.run(for: app.bundleID) {
+            await launchApp(app, interactive: interactive)
+        }
+    }
+
+    private func launchApp(_ app: ManagedApp, interactive: Bool) async {
         if !runningInstances(of: app).isEmpty {
             message = "\(app.name) is already running. Use Relaunch to restart it through the proxy."
             return
@@ -262,8 +272,11 @@ final class AppStore {
             if settings.warnWhenProxyDown && !confirmLaunchWithProxyDown(app) { return }
         }
 
-        busy.insert(app.id)
-        defer { busy.remove(app.id) }
+        // The app may have been opened from the Dock while the probe was running.
+        guard runningInstances(of: app).isEmpty else {
+            message = "\(app.name) is already running. Use Relaunch to restart it through the proxy."
+            return
+        }
 
         let config = NSWorkspace.OpenConfiguration()
         config.environment = settings.environment.merging(app.extraEnvironmentDict) { _, new in new }
@@ -272,7 +285,7 @@ final class AppStore {
 
         do {
             _ = try await NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app.path), configuration: config)
-            message = "Launched \(app.name) through \(settings.url)"
+            message = "Launched \(app.name) with proxy settings"
         } catch {
             message = "Couldn't launch \(app.name): \(error.localizedDescription)"
         }
@@ -282,11 +295,14 @@ final class AppStore {
 
     @discardableResult
     func stop(_ app: ManagedApp, force: Bool = false) async -> Bool {
+        await appOperations.run(for: app.bundleID) {
+            await stopApp(app, force: force)
+        } ?? false
+    }
+
+    private func stopApp(_ app: ManagedApp, force: Bool = false) async -> Bool {
         let running = runningInstances(of: app)
         guard !running.isEmpty else { return true }
-
-        busy.insert(app.id)
-        defer { busy.remove(app.id) }
 
         for instance in running {
             if force { instance.forceTerminate() } else { instance.terminate() }
@@ -304,7 +320,7 @@ final class AppStore {
         message = "Quit \(app.name)"
         if settings.cleanupAfterQuit {
             try? await Task.sleep(for: .seconds(1.5))
-            await cleanup(app)
+            await cleanLeftovers(app, allowNameMatches: false)
         } else {
             await refreshApps()
         }
@@ -312,31 +328,57 @@ final class AppStore {
     }
 
     func relaunch(_ app: ManagedApp) async {
-        guard await stop(app) else { return }
-        try? await Task.sleep(for: .milliseconds(700))
-        await launch(app)
+        _ = await appOperations.run(for: app.bundleID) {
+            guard await stopApp(app) else { return }
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            await launchApp(app, interactive: true)
+        }
     }
 
     /// Terminates leftover processes (SIGTERM, then SIGKILL after 2 s).
     func cleanup(_ app: ManagedApp) async {
+        _ = await appOperations.run(for: app.bundleID) {
+            await cleanLeftovers(app, allowNameMatches: true)
+        }
+    }
+
+    private func cleanLeftovers(_ app: ManagedApp, allowNameMatches: Bool) async {
         guard runningInstances(of: app).isEmpty else { return }
-        let targets = await Task.detached { ProcessInspector.userProcesses() }.value.filter { app.isLeftover($0) }
-        guard !targets.isEmpty else {
+        let processes = await Task.detached { ProcessInspector.userProcesses() }.value
+        var targets = processes.filter { app.isBundleLeftover($0) }
+        if allowNameMatches {
+            let nameMatches = processes.filter { app.isNameOnlyLeftover($0) }
+            if !nameMatches.isEmpty && confirmNameOnlyCleanup(nameMatches, app: app) {
+                targets += nameMatches
+            }
+        }
+        guard !targets.isEmpty, runningInstances(of: app).isEmpty, !Task.isCancelled else {
             await refreshApps()
             return
         }
 
-        busy.insert(app.id)
-        defer { busy.remove(app.id) }
-
-        for p in targets { kill(p.pid, SIGTERM) }
-        try? await Task.sleep(for: .seconds(2))
-        let remaining = await Task.detached { ProcessInspector.userProcesses() }.value
-            .filter { targets.contains($0) }
-        for p in remaining { kill(p.pid, SIGKILL) }
-
-        message = "Cleaned up \(targets.count) leftover process\(targets.count == 1 ? "" : "es") for \(app.name)"
+        let signaled = targets.filter { ProcessInspector.signal(SIGTERM, to: $0) }
+        if !signaled.isEmpty {
+            try? await Task.sleep(for: .seconds(2))
+            if !Task.isCancelled && runningInstances(of: app).isEmpty {
+                for target in signaled { _ = ProcessInspector.signal(SIGKILL, to: target) }
+            }
+            message = "Sent cleanup signals for \(app.name)"
+        }
         await refreshApps()
+    }
+
+    private func confirmNameOnlyCleanup(_ processes: [ProcInfo], app: ManagedApp) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Include processes matched by name?"
+        let names = processes.map { "\($0.name) (PID \($0.pid))" }.joined(separator: ", ")
+        alert.informativeText = "These processes are outside \(app.name)’s bundle and may belong to another app.\n\n\(names)"
+        alert.addButton(withTitle: "Skip Name Matches")
+        alert.addButton(withTitle: "Include Name Matches")
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     private func launchStartupApps() async {

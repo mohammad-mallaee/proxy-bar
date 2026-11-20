@@ -68,7 +68,7 @@ private struct GeneralSettings: View {
 
             Section("Behavior") {
                 Toggle("Ask before launching when the proxy isn't reachable", isOn: $store.settings.warnWhenProxyDown)
-                Toggle("Clean up leftover processes after quitting an app", isOn: $store.settings.cleanupAfterQuit)
+                Toggle("Clean up leftover app-bundle processes after quitting an app", isOn: $store.settings.cleanupAfterQuit)
                 Toggle("Open ProxyBar at login", isOn: Binding(
                     get: { store.opensAtLogin },
                     set: { store.setOpensAtLogin($0) }
@@ -180,7 +180,7 @@ private struct AppDetail: View {
 
             Section("Leftover processes") {
                 TextField("Process names", text: $app.cleanupPatterns, prompt: Text("e.g. agy_acp_server, localharness_external"))
-                Text("After the app quits, processes still running from inside the app, or whose name contains one of these (comma-separated), can be cleaned up.")
+                Text("Manual cleanup asks before including processes outside the bundle whose names contain one of these comma-separated patterns.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -201,19 +201,8 @@ private struct RegionSettings: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Form {
-                Section("Region check") {
-                    Toggle("Also check each service without the proxy", isOn: $store.settings.checkDirectToo)
-                    Picker("Re-check automatically", selection: $store.settings.regionCheckIntervalMinutes) {
-                        Text("Only at start and when the proxy reconnects").tag(0)
-                        Text("Every 15 minutes").tag(15)
-                        Text("Every 30 minutes").tag(30)
-                        Text("Every hour").tag(60)
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            .frame(height: 140)
+            checkControls
+            Divider()
 
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
@@ -269,6 +258,34 @@ private struct RegionSettings: View {
                 }
             }
         }
+    }
+
+    private var checkControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Region check")
+                .font(.headline)
+
+            Toggle("Also check each service without the proxy", isOn: $store.settings.checkDirectToo)
+                .toggleStyle(.switch)
+
+            Text("Sends direct requests to enabled services and to Cloudflare for your direct exit IP and country.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            LabeledContent("Re-check automatically") {
+                Picker("Re-check automatically", selection: $store.settings.regionCheckIntervalMinutes) {
+                    Text("Only at start and when the proxy reconnects").tag(0)
+                    Text("Every 15 minutes").tag(15)
+                    Text("Every 30 minutes").tag(30)
+                    Text("Every hour").tag(60)
+                }
+                .labelsHidden()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

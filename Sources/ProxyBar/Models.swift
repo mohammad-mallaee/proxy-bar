@@ -30,7 +30,7 @@ struct ProxySettings: Codable, Equatable {
     /// After quitting an app from ProxyBar, kill its leftover processes automatically.
     var cleanupAfterQuit = false
     /// Region check: also test each service without the proxy, to show what the proxy fixes.
-    var checkDirectToo = true
+    var checkDirectToo = false
     /// Re-run the region check automatically every N minutes (0 = only at start and when the proxy reconnects).
     var regionCheckIntervalMinutes = 30
     /// Notify when the proxy stops answering (after two failed checks in a row).
@@ -227,9 +227,16 @@ struct ManagedApp: Codable, Identifiable, Hashable {
     /// A process left behind after the app quit: re-parented to launchd (ppid 1)
     /// and either living inside the app bundle or matching a cleanup pattern.
     func isLeftover(_ p: ProcInfo) -> Bool {
-        guard p.ppid == 1 else { return false }
-        if p.path.hasPrefix(path + "/") { return true }
-        return cleanupPatternList.contains { p.name.localizedCaseInsensitiveContains($0) }
+        isBundleLeftover(p) || isNameOnlyLeftover(p)
+    }
+
+    func isBundleLeftover(_ p: ProcInfo) -> Bool {
+        p.ppid == 1 && p.path.hasPrefix(path + "/")
+    }
+
+    func isNameOnlyLeftover(_ p: ProcInfo) -> Bool {
+        p.ppid == 1 && !isBundleLeftover(p)
+            && cleanupPatternList.contains { p.name.localizedCaseInsensitiveContains($0) }
     }
 }
 

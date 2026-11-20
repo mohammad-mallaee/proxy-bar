@@ -1,73 +1,36 @@
 # ProxyBar
 
-A macOS menu bar app that launches apps (T3 Code, Claude, VS Code, …) through an HTTP or SOCKS5 proxy, shows whether each one is running through it, and checks which online services work through your proxy.
+Launch selected Mac apps through an HTTP or SOCKS5 proxy from the menu bar. ProxyBar shows whether the proxy port is reachable, reads running apps’ proxy settings where macOS permits it, and checks which services answer through the proxy.
 
-Progress, backlog and design notes are in [docs/PROGRESS.md](docs/PROGRESS.md).
+## Get started
 
-## Features
+Requires macOS 14 or later and the Command Line Tools with Swift 6. Install the tools with `xcode-select --install` if needed.
 
-**Proxy and apps**
-- **Proxy status:** the menu bar icon gets a slash when nothing is listening on the proxy port. The menu shows the connect time.
-- **Per-app status:** not running, running through the proxy, running directly, or running through a different proxy. ProxyBar reads the running app's environment.
-- **Launch / Relaunch / Quit / Force Quit** (right-click the stop button for Force Quit).
-- **Leftover cleanup:** after an app quits, finds processes that were re-parented to launchd and either live inside the app bundle or match per-app name patterns (e.g. T3 Code's `agy_acp_server`). Kills them with SIGTERM, then SIGKILL. Can run automatically after every quit.
-- **Start with ProxyBar** per app, plus **Open ProxyBar at login**. ProxyBar waits up to 60 s for the proxy to come up.
-
-**Region check** (v0.2)
-- Checks each service with an unauthenticated request, through the proxy and directly: Gemini, Antigravity, Google developer sites, Claude, OpenAI, xAI, OpenRouter, Groq and Docker Hub. You can add your own.
-- Each check has a block signature (HTTP statuses + optional text markers). A normal "401 missing API key" counts as available.
-- Shows the exit IP and country through the proxy and directly, plus Google latency.
-- Apps list the services they need, and the menu warns on an app's row when one is blocked through the proxy.
-- Runs at start, when the proxy reconnects, every 15/30/60 minutes, or with **Check**.
-
-**Notifications** (v0.2)
-- Proxy down (after two failed checks in a row), proxy back, and a service newly blocked through the proxy.
-
-**Terminal with proxy** (v0.2)
-- Opens Terminal or iTerm in your home folder, a chosen folder, or a recent folder, with the proxy variables set. **Copy shell exports** is in the same menu.
-
-**First-run setup and icon** (v0.2)
-- A setup window on first launch: proxy and a live check, an app picker, then login, notifications and terminal choices. Rerun it from Settings.
-
-## What a launched app gets
-
-- `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (plus lowercase copies, and `ALL_PROXY` for SOCKS5)
-- `NODE_USE_ENV_PROXY=1`: Node.js 24+ `fetch()` honors the variables
-- For Electron apps: `--proxy-server=… --proxy-bypass-list=…`. Chromium ignores the environment variables for its own traffic.
-- Any extra `KEY=value` lines set for that app in Settings
-
-## Build
-
-Needs only the Command Line Tools (Swift 6.x); Xcode isn't required.
+From the project directory, build and open the app:
 
 ```sh
-./build.sh            # → build/ProxyBar.app
-./build.sh --install  # also copy to ~/Applications (quits a running copy first)
-./build.sh --run      # install and open
+./build.sh
+open build/ProxyBar.app
 ```
 
-To redraw the icon, delete `Resources/AppIcon.icns` and build, or run `scripts/make-icon.swift` yourself.
+To keep a copy in `~/Applications`, use `./build.sh --install`. Use `./build.sh --run` to install and open it. The build uses ad-hoc signing for local use.
 
-## Layout
+On first launch, enter the host and port from your proxy app, choose the apps and services you use, and set your login and notification preferences. You can rerun setup from **Settings → Proxy → Run setup again…**.
 
-| File | What it does |
-|---|---|
-| `ProxyBarApp.swift` | `@main`: the `MenuBarExtra` and the `Settings` scene |
-| `AppStore.swift` | All state and actions: refresh loop, launch/stop/relaunch/cleanup, region check scheduling, notifications, terminal, persistence |
-| `Models.swift` | `ProxySettings` (env vars, Chromium args, proxied/direct URLSession configs) and `ManagedApp` |
-| `Services.swift` | `ServiceCheck` (block signatures and built-in presets), verdicts, `KnownApps` catalog |
-| `Network.swift` | TCP probe of the proxy port; `RegionChecker` (exit info, per-service judging) |
-| `ProcessInspector.swift` | sysctl/libproc: user processes, executable paths, another process's environment |
-| `Notifier.swift` | UserNotifications with an AppleScript fallback |
-| `TerminalLauncher.swift` | Self-deleting `.command` script for Terminal/iTerm |
-| `Onboarding.swift` | First-run setup window |
-| `MenuView.swift` | The menu bar panel |
-| `SettingsView.swift` | Settings: Proxy, Apps and Region tabs |
-| `scripts/make-icon.swift` | Draws the app icon |
-| `Resources/Info.plist` | Bundle info; `LSUIElement` hides the Dock icon |
+## Use ProxyBar
 
-## Notes
+- **Launch apps.** Add apps in **Settings → Apps**. Launch a stopped app from the menu or use **Relaunch** to restart a running app with your proxy settings. Right-click the stop button for **Force Quit**.
+- **Clean up after quitting.** Use the trash button when an app row shows leftover processes. ProxyBar asks before including processes outside the app bundle that match a configured name pattern. Automatic cleanup in **Settings → Proxy** is limited to processes inside the bundle.
+- **Check services.** Use the refresh button in the menu or open **Settings → Region** for per-service results. ProxyBar reports the exit IP and country when available. Choose which services to check, add custom endpoints, or disable direct comparisons in the Region tab.
+- **Open a proxied shell.** Use **Terminal with proxy** for your home folder, a chosen folder, or a recent folder. Choose Terminal or iTerm in **Settings → Proxy**, or use **Copy shell exports** in the menu to configure an existing shell.
+- **Automate startup and alerts.** Enable **Open ProxyBar at login** in the Proxy tab and **Start with ProxyBar** for individual apps. You can also enable alerts for proxy outages, recovery, and newly blocked services.
 
-- **No `@State`:** in this SDK, SwiftUI's `@State` is a macro whose plugin only ships with Xcode, so UI state lives in `@Observable` classes. With Xcode installed you can use `@State` normally.
-- **Saved settings:** stored in the `dev.local.ProxyBar` defaults domain (`defaults read dev.local.ProxyBar`). Decoding uses `decodeIfPresent`, so new fields never wipe saved settings. To see the setup window again: `defaults delete dev.local.ProxyBar onboardingDone.v1`.
-- **Signing:** the app is ad-hoc signed (`codesign -s -`). macOS may ask you to approve the login item, and asks for notification permission once.
+## How proxy settings apply
+
+ProxyBar supplies `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` when it launches an app. SOCKS5 also sets `ALL_PROXY`. You can enable lowercase variants and set `NODE_USE_ENV_PROXY=1` for Node.js 24+ `fetch()`. For supported Chromium/Electron apps, ProxyBar can also pass proxy and bypass flags. Add per-app overrides under **Extra environment** in the Apps tab. Each app controls which network requests honor these settings.
+
+Region checks send unauthenticated requests to the selected endpoints, plus Google for latency and Cloudflare for exit information. Opt in to direct comparison during setup or in **Settings → Region** to also contact the selected endpoints and Cloudflare outside the proxy. An expected authentication response such as HTTP 401 can mean the endpoint is available.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the code layout, development setup, and icon generator.
