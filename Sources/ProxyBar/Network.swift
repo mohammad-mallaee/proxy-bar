@@ -6,7 +6,8 @@ import os
 enum TCPProbe {
     /// Returns the connect time in milliseconds, or nil if the port isn't reachable.
     static func connect(host: String, port: Int, timeout: TimeInterval = 2) async -> Double? {
-        guard let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)), !host.isEmpty else { return nil }
+        guard let number = UInt16(exactly: port), let nwPort = NWEndpoint.Port(rawValue: number),
+              number > 0, !host.isEmpty else { return nil }
         let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
         let start = Date()
         let done = OSAllocatedUnfairLock(initialState: false)
@@ -97,7 +98,8 @@ enum RegionChecker {
     }
 
     static func judge(_ service: ServiceCheck, session: URLSession) async -> ServiceVerdict {
-        guard let url = URL(string: service.url), url.scheme?.hasPrefix("http") == true else {
+        guard let url = URL(string: service.url), let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", let host = url.host, !host.isEmpty else {
             return .unreachable(reason: "invalid URL")
         }
         var request = URLRequest(url: url)
@@ -105,9 +107,11 @@ enum RegionChecker {
         let start = Date()
         do {
             let (data, response) = try await session.data(for: request)
-            let http = response as? HTTPURLResponse
-            let code = http?.statusCode ?? 0
-            let finalURL = http?.url?.absoluteString ?? ""
+            guard let http = response as? HTTPURLResponse else {
+                return .unreachable(reason: "invalid HTTP response")
+            }
+            let code = http.statusCode
+            let finalURL = http.url?.absoluteString ?? ""
             let body = String(decoding: data.prefix(64_000), as: UTF8.self)
 
             let statuses = service.statusList
@@ -146,7 +150,8 @@ enum RegionChecker {
     }
 
     private static func exitInfo(_ session: URLSession) async -> ExitInfo? {
-        guard let (data, _) = try? await session.data(from: URL(string: "https://www.cloudflare.com/cdn-cgi/trace")!) else {
+        guard let (data, response) = try? await session.data(from: URL(string: "https://www.cloudflare.com/cdn-cgi/trace")!),
+              (response as? HTTPURLResponse)?.statusCode == 200 else {
             return nil
         }
         var info = ExitInfo()
@@ -156,7 +161,7 @@ enum RegionChecker {
             if parts[0] == "ip" { info.ip = parts[1] }
             if parts[0] == "loc" { info.country = parts[1] }
         }
-        return info
+        return info.ip?.isEmpty == false ? info : nil
     }
 
     /// A short, human-readable reason: the JSON "message", the matched marker, or the HTML title.

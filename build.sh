@@ -6,6 +6,15 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+case "${1:-}" in
+  ""|--install|--run) ;;
+  *) echo "Usage: $0 [--install|--run]" >&2; exit 2 ;;
+esac
+if (( $# > 1 )); then
+  echo "Usage: $0 [--install|--run]" >&2
+  exit 2
+fi
+
 APP_NAME="ProxyBar"
 APP="build/$APP_NAME.app"
 
@@ -23,6 +32,7 @@ cp "$BIN_DIR/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 [[ -f Resources/AppIcon.icns ]] && cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 codesign --force --sign - "$APP" >/dev/null
+codesign --verify --strict "$APP"
 echo "Built $APP"
 
 if [[ "${1:-}" == "--install" || "${1:-}" == "--run" ]]; then
@@ -30,10 +40,16 @@ if [[ "${1:-}" == "--install" || "${1:-}" == "--run" ]]; then
   if pgrep -x "$APP_NAME" >/dev/null; then
     osascript -e "quit app \"$APP_NAME\"" || true
     for _ in {1..20}; do pgrep -x "$APP_NAME" >/dev/null || break; sleep 0.25; done
+    if pgrep -x "$APP_NAME" >/dev/null; then
+      echo "ProxyBar is still running. Quit it before installing." >&2
+      exit 1
+    fi
   fi
   mkdir -p "$HOME/Applications"
   rm -rf "$DEST"
   cp -R "$APP" "$DEST"
   echo "Installed $DEST"
-  [[ "${1:-}" == "--run" ]] && open "$DEST"
+  if [[ "$1" == "--run" ]]; then
+    open "$DEST"
+  fi
 fi

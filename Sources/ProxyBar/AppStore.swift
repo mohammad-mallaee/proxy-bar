@@ -31,8 +31,14 @@ final class AppStore {
             guard settings != oldValue else { return }
             persist()
             if settings.host != oldValue.host || settings.port != oldValue.port || settings.scheme != oldValue.scheme {
-                report = nil
+                proxyState = .checking
+                proxyProbeGeneration += 1
+                consecutiveProxyFailures = 0
+                proxyDownNotified = false
                 Task { await checkProxy() }
+            }
+            if regionInputs != RegionInputs(settings: oldValue, services: services) {
+                invalidateRegionReport()
             }
         }
     }
@@ -49,6 +55,9 @@ final class AppStore {
         didSet {
             guard services != oldValue else { return }
             persist()
+            if regionInputs != RegionInputs(settings: settings, services: oldValue) {
+                invalidateRegionReport()
+            }
         }
     }
 
@@ -83,6 +92,26 @@ final class AppStore {
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var consecutiveProxyFailures = 0
     @ObservationIgnored private var proxyDownNotified = false
+    @ObservationIgnored private var proxyProbeGeneration = 0
+    @ObservationIgnored private var regionGeneration = 0
+
+    private struct RegionInputs: Equatable {
+        let host: String
+        let port: Int
+        let scheme: ProxyScheme
+        let includeDirect: Bool
+        let enabledServices: [ServiceCheck]
+
+        init(settings: ProxySettings, services: [ServiceCheck]) {
+            host = settings.host
+            port = settings.port
+            scheme = settings.scheme
+            includeDirect = settings.checkDirectToo
+            enabledServices = services.filter(\.enabled)
+        }
+    }
+
+    private var regionInputs: RegionInputs { RegionInputs(settings: settings, services: services) }
 
     private enum Keys {
         static let settings = "settings.v1"
@@ -144,7 +173,10 @@ final class AppStore {
     }
 
     func checkProxy() async {
+        proxyProbeGeneration += 1
+        let generation = proxyProbeGeneration
         let ms = await TCPProbe.connect(host: settings.host, port: settings.port)
+        guard generation == proxyProbeGeneration else { return }
         let newState: ProxyState = ms.map { .up(ms: $0) } ?? .down
         let wasDown = proxyState == .down
         if newState != proxyState { proxyState = newState }
@@ -333,6 +365,11 @@ final class AppStore {
 
     // MARK: - Region check
 
+    private func invalidateRegionReport() {
+        regionGeneration += 1
+        report = nil
+    }
+
     private var regionCheckIsDue: Bool {
         guard settings.regionCheckIntervalMinutes > 0, !checking, proxyState.isUp else { return false }
         guard let report else { return true }
@@ -343,11 +380,16 @@ final class AppStore {
     func runRegionCheck(automatic: Bool = false) async {
         guard !checking else { return }
         if automatic && !proxyState.isUp { return }
+        let generation = regionGeneration
         checking = true
         defer { checking = false }
         if !automatic { await checkProxy() }
-        let enabled = services.filter(\.enabled)
-        let newReport = await RegionChecker.run(settings: settings, services: enabled, includeDirect: settings.checkDirectToo)
+        guard generation == regionGeneration else { return }
+        let inputs = regionInputs
+        let newReport = await RegionChecker.run(settings: settings,
+                                                services: inputs.enabledServices,
+                                                includeDirect: inputs.includeDirect)
+        guard generation == regionGeneration else { return }
         let previous = report
         report = newReport
         if automatic { notifyNewlyBlocked(previous: previous, current: newReport) }
